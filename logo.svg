@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Reel Vault">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1b1f27"/>
+      <stop offset="1" stop-color="#0a0c10"/>
+    </linearGradient>
+    <linearGradient id="amber" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#fbbf24"/>
+      <stop offset="1" stop-color="#d97706"/>
+    </linearGradient>
+  </defs>
+  <!-- vault door -->
+  <rect width="512" height="512" rx="112" fill="url(#bg)"/>
+  <circle cx="256" cy="256" r="208" fill="none" stroke="#2a3140" stroke-width="10"/>
+  <g stroke="#3b4353" stroke-width="6" stroke-linecap="round">
+    <line x1="427.8" y1="327.2" x2="438.0" y2="331.4"/><line x1="327.2" y1="427.8" x2="331.4" y2="438.0"/><line x1="184.8" y1="427.8" x2="180.6" y2="438.0"/><line x1="84.2" y1="327.2" x2="74.0" y2="331.4"/><line x1="84.2" y1="184.8" x2="74.0" y2="180.6"/><line x1="184.8" y1="84.2" x2="180.6" y2="74.0"/><line x1="327.2" y1="84.2" x2="331.4" y2="74.0"/><line x1="427.8" y1="184.8" x2="438.0" y2="180.6"/>
+  </g>
+  <!-- film reel -->
+  <circle cx="256" cy="256" r="172" fill="#151920"/>
+  <circle cx="256" cy="256" r="172" fill="none" stroke="url(#amber)" stroke-width="16"/>
+  <g fill="#0a0c10" stroke="#2a3140" stroke-width="4">
+    <circle cx="329.5" cy="329.5" r="40"/><circle cx="182.5" cy="329.5" r="40"/><circle cx="182.5" cy="182.5" r="40"/><circle cx="329.5" cy="182.5" r="40"/>
+  </g>
+  <!-- spokes double as the handwheel -->
+  <g stroke="url(#amber)" stroke-width="24" stroke-linecap="round">
+    <line x1="256" y1="256" x2="256.0" y2="56.0"/><line x1="256" y1="256" x2="456.0" y2="256.0"/><line x1="256" y1="256" x2="256.0" y2="456.0"/><line x1="256" y1="256" x2="56.0" y2="256.0"/>
+  </g>
+  <g fill="url(#amber)">
+    <circle cx="256.0" cy="56.0" r="19"/><circle cx="456.0" cy="256.0" r="19"/><circle cx="256.0" cy="456.0" r="19"/><circle cx="56.0" cy="256.0" r="19"/>
+  </g>
+  <circle cx="256" cy="256" r="54" fill="url(#amber)"/>
+  <circle cx="256" cy="256" r="24" fill="#0a0c10"/>
+</svg>

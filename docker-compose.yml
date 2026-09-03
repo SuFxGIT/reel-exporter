@@ -1,0 +1,18 @@
+services:
+  reel-vault:
+    build: .
+    image: ghcr.io/sufxgit/reel-vault:latest
+    container_name: reel-vault
+    ports:
+      - "7727:7727"
+    volumes:
+      - /mnt/user/data/media:/media:ro       # your library; never written to
+      - /mnt/user/data/reel-vault:/output    # screenshots and clips land here
+      - /mnt/user/appdata/reel-vault:/config # index, caches and transcode segments
+    environment:
+      PUID: "99"
+      PGID: "100"
+      TZ: Asia/Riyadh
+      # LOG_LEVEL: info
+      # SCAN_INTERVAL_MINUTES: "60"
+    restart: unless-stopped

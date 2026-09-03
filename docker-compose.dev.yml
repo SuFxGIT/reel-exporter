@@ -1,0 +1,23 @@
+# Development loop: runs the TypeScript server with tsx inside an Alpine container that
+# has ffmpeg, against the real library. Edit files on the host; the server restarts.
+#   docker compose -f docker-compose.dev.yml up
+services:
+  dev:
+    image: node:24-alpine3.24
+    container_name: reel-vault-dev
+    working_dir: /app
+    command: sh -c "apk add --no-cache ffmpeg >/dev/null && npm run dev"
+    environment:
+      PORT: "7727"
+      MEDIA_PATH: /media
+      OUTPUT_PATH: /output
+      CONFIG_PATH: /config
+      LOG_LEVEL: debug
+      NODE_ENV: development
+    ports:
+      - "7727:7727"
+    volumes:
+      - .:/app
+      - /mnt/user/data/media:/media:ro
+      - ./data/output:/output
+      - ./data/config:/config

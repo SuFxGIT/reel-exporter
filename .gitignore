@@ -1,0 +1,16 @@
+node_modules/
+web/node_modules/
+dist/
+web/dist/
+config/
+data/
+.env
+.env.*
+*.log
+*.tsbuildinfo
+.DS_Store
+.claude/
+.agents/
+.worktrees/
+.vscode/
+.idea/
