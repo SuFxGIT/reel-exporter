@@ -52,8 +52,12 @@ if ! su-exec "$PUID:$PGID" sh -c "test -d '$OUTPUT_PATH' && test -w '$OUTPUT_PAT
   log "WARNING: $OUTPUT_PATH is NOT writable by $PUID:$PGID. Screenshots and clips will fail."
   log "         Fix on the host, e.g.: chown -R $PUID:$PGID <host path mapped to $OUTPUT_PATH>"
 fi
-if ! su-exec "$PUID:$PGID" sh -c "test -r '$MEDIA_PATH'"; then
-  log "WARNING: $MEDIA_PATH is not readable by $PUID:$PGID"
-fi
+# Media sources are added in the app; warn early about mounts the app user cannot read.
+for m in "$MEDIA_PATH" /media*; do
+  [ -d "$m" ] || continue
+  if ! su-exec "$PUID:$PGID" sh -c "test -r '$m' && test -x '$m'"; then
+    log "WARNING: $m is not readable by $PUID:$PGID"
+  fi
+done
 
 exec su-exec "$PUID:$PGID" "$@"

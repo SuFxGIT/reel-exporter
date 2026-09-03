@@ -14,8 +14,66 @@ export interface LibrarySummary {
     id: string
     name: string
     kind: "movies" | "shows" | "mixed"
+    sourceId: string
+    relPath: string
+    available: boolean
     items: LibraryItemSummary[]
   }>
+}
+
+export interface SourceLibrary {
+  id: string
+  relPath: string
+  name: string
+  customName: string | null
+  itemCount: number
+  available: boolean
+}
+
+export interface Source {
+  id: string
+  path: string
+  hostPath?: string
+  readOnly: boolean
+  exists: boolean
+  readable: boolean
+  libraries: SourceLibrary[]
+}
+
+export interface SourceCandidate {
+  path: string
+  hostPath?: string
+  readOnly: boolean
+}
+
+export interface SourcesResponse {
+  persistent: boolean
+  scanning: boolean
+  sources: Source[]
+  candidates: SourceCandidate[]
+}
+
+export interface BrowseFolder {
+  name: string
+  relPath: string
+  videoCount?: number
+  selected: boolean
+  blockedBy?: string
+}
+
+export interface BrowseResponse {
+  path: string
+  parentPath: string | null
+  selected: boolean
+  blockedBy?: string
+  videoCount: number
+  truncated: boolean
+  folders: BrowseFolder[]
+}
+
+export interface LibrarySelection {
+  relPath: string
+  name?: string
 }
 
 export interface EpisodeSummary {
@@ -222,6 +280,32 @@ export const api = {
     }),
   captures: (id: string) =>
     request<CapturesResponse>(`/api/items/${id}/captures`),
+  sources: () => request<SourcesResponse>("/api/sources"),
+  addSource: async (p: string) => {
+    const r = await request<{ source: Source }>("/api/sources", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ path: p }),
+    })
+    return r.source
+  },
+  removeSource: (id: string) =>
+    request<void>(`/api/sources/${id}`, { method: "DELETE" }),
+  browse: (id: string, relPath: string) =>
+    request<BrowseResponse>(
+      `/api/sources/${id}/browse?path=${encodeURIComponent(relPath)}`
+    ),
+  setLibraries: async (id: string, libraries: LibrarySelection[]) => {
+    const r = await request<{ source: Source }>(
+      `/api/sources/${id}/libraries`,
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ libraries }),
+      }
+    )
+    return r.source
+  },
   job: (jobId: string) => request<Job>(`/api/jobs/${jobId}`),
   cancelJob: (jobId: string) =>
     request<void>(`/api/jobs/${jobId}`, { method: "DELETE" }),

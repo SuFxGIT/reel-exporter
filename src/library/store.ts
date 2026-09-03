@@ -1,9 +1,10 @@
+import { promises as fs } from "node:fs"
 import path from "node:path"
 import type { Logger } from "../logger.js"
 import { atomicWriteJson, readJson } from "../util/async.js"
 import { episodeLabel, titleWithYear } from "./naming.js"
 import {
-  scanMedia,
+  scanSources,
   type Episode,
   type Library,
   type LibraryItem,
@@ -12,6 +13,7 @@ import {
   type ScanResult,
   type Show,
 } from "./scanner.js"
+import type { EffectiveSource } from "./sources.js"
 
 export interface LibrarySummary {
   scannedAt: string | null
@@ -20,6 +22,9 @@ export interface LibrarySummary {
     id: string
     name: string
     kind: Library["kind"]
+    sourceId: string
+    relPath: string
+    available: boolean
     items: Array<{
       id: string
       type: "movie" | "show"
@@ -67,9 +72,12 @@ export interface PlayableInfo {
 }
 
 export interface StoreOptions {
-  mediaPath: string
+  /** Live source configuration, read at the start of every scan. */
+  sources: () => EffectiveSource[]
+  configHash: () => string
   cacheFile: string
-  skipDirs: Set<string>
+  /** Probe/peaks cache root (a getter because it can be re-pointed at boot). */
+  cacheDir: () => string
   log: Logger
 }
 
@@ -77,7 +85,9 @@ export class LibraryStore {
   private data: ScanResult | null = null
   private index = new Map<string, LibraryItem | Episode>()
   private showOfEpisode = new Map<string, Show>()
+  private sourcePaths = new Map<string, string>()
   private scanPromise: Promise<void> | null = null
+  private rescanQueued = false
   private timer: NodeJS.Timeout | null = null
   lastError: string | null = null
   private readonly opts: StoreOptions
@@ -102,8 +112,10 @@ export class LibraryStore {
     const cached = await readJson<ScanResult>(this.opts.cacheFile)
     if (
       !cached ||
-      cached.version !== 1 ||
-      cached.mediaPath !== this.opts.mediaPath
+      cached.version !== 2 ||
+      cached.configHash !== this.opts.configHash() ||
+      !Array.isArray(cached.sources) ||
+      !Array.isArray(cached.libraries)
     )
       return false
     this.apply(cached)
@@ -118,23 +130,43 @@ export class LibraryStore {
     return true
   }
 
-  /** Single-flight rescan. Returns the in-progress promise when a scan is already running. */
+  /**
+   * Single-flight rescan. A request that arrives while a scan runs queues one more
+   * scan so configuration changes made mid-scan are always picked up.
+   */
   rescan(): Promise<void> {
-    if (this.scanPromise) return this.scanPromise
+    if (this.scanPromise) {
+      this.rescanQueued = true
+      return this.scanPromise
+    }
     this.scanPromise = (async () => {
       const log = this.opts.log
       try {
-        log.info({ mediaPath: this.opts.mediaPath }, "library: scan started")
-        const result = await scanMedia(this.opts.mediaPath, {
-          skipDirs: this.opts.skipDirs,
-          log,
-        })
+        const sources = this.opts.sources()
+        const configHash = this.opts.configHash()
+        log.info(
+          {
+            sources: sources.map((s) => `${s.path}:${s.libraries.length}`),
+          },
+          "library: scan started"
+        )
+        const result = await scanSources(sources, { configHash, log })
+        const allUnavailable =
+          result.libraries.length > 0 &&
+          result.libraries.every((l) => !l.available)
+        if (allUnavailable && this.index.size > 0) {
+          log.warn(
+            "library: no source was reachable, keeping the previous index"
+          )
+          this.lastError = "No media source was reachable during the last scan."
+          return
+        }
         this.apply(result)
         this.lastError = null
         log.info(
           {
             libraries: result.libraries.map(
-              (l) => `${l.name}:${l.items.length}`
+              (l) => `${l.name}:${l.available ? l.items.length : "missing"}`
             ),
             files: result.stats.files,
             dirs: result.stats.dirs,
@@ -151,11 +183,22 @@ export class LibraryStore {
             "library: could not write cache"
           )
         }
+        // Sweep only when every configured library was readable, and never while
+        // nothing is configured yet (a fresh install would wipe every cache).
+        if (
+          result.libraries.length > 0 &&
+          result.libraries.every((l) => l.available)
+        )
+          void this.sweepCaches()
       } catch (err) {
         this.lastError = (err as Error).message
         log.error({ err }, "library: scan failed")
       } finally {
         this.scanPromise = null
+        if (this.rescanQueued) {
+          this.rescanQueued = false
+          void this.rescan()
+        }
       }
     })()
     return this.scanPromise
@@ -192,6 +235,28 @@ export class LibraryStore {
     this.data = result
     this.index = index
     this.showOfEpisode = showOfEpisode
+    this.sourcePaths = new Map(result.sources.map((s) => [s.id, s.path]))
+  }
+
+  /** Deletes probe and peaks cache files for ids that no longer exist. */
+  private async sweepCaches(): Promise<void> {
+    const ids = this.playableIds()
+    let removed = 0
+    for (const [sub, re] of [
+      ["probe", /^([a-f0-9]{12,20})\.json$/],
+      ["peaks", /^([a-f0-9]{12,20})-a-?\d+\.json$/],
+    ] as const) {
+      const dir = path.join(this.opts.cacheDir(), sub)
+      const names = await fs.readdir(dir).catch(() => [] as string[])
+      for (const n of names) {
+        const m = re.exec(n)
+        if (!m || ids.has(m[1]!)) continue
+        await fs.unlink(path.join(dir, n)).catch(() => undefined)
+        removed++
+      }
+    }
+    if (removed > 0)
+      this.opts.log.info({ removed }, "library: swept stale caches")
   }
 
   summary(): LibrarySummary {
@@ -202,6 +267,9 @@ export class LibraryStore {
         id: lib.id,
         name: lib.name,
         kind: lib.kind,
+        sourceId: lib.sourceId,
+        relPath: lib.relPath,
+        available: lib.available,
         items: lib.items.map((item) =>
           item.kind === "movie"
             ? {
@@ -231,6 +299,14 @@ export class LibraryStore {
       else items++
     }
     return { libraries: this.data?.libraries.length ?? 0, items, episodes }
+  }
+
+  /** Item counts per library id from the last scan. */
+  libraryCounts(): Map<string, { items: number; available: boolean }> {
+    const m = new Map<string, { items: number; available: boolean }>()
+    for (const lib of this.data?.libraries ?? [])
+      m.set(lib.id, { items: lib.items.length, available: lib.available })
+    return m
   }
 
   getShow(id: string): ShowDetail | null {
@@ -263,7 +339,9 @@ export class LibraryStore {
   getPlayable(id: string): PlayableInfo | null {
     const item = this.index.get(id)
     if (!item || item.kind === "show") return null
-    const absPath = path.join(this.opts.mediaPath, item.relPath)
+    const root = this.sourcePaths.get(item.sourceId)
+    if (!root) return null
+    const absPath = path.join(root, item.relPath)
     if (item.kind === "movie") {
       const folderName = titleWithYear(item.title, item.year)
       return {

@@ -30,9 +30,13 @@ There is no ffmpeg on the host; anything that touches media runs in a container.
 
 - `src/index.ts` boots config, ffmpeg capability detection, the library store, routes,
   static serving of `web/dist`, and graceful shutdown (kills every child ffmpeg).
+- `src/library/sources.ts` owns `CONFIG_PATH/sources.json`: which mounted folders are
+  sources and which folders inside them are libraries (validation, no nesting, name
+  disambiguation, config hash). `mounts.ts` parses `/proc/self/mountinfo` to suggest mounts.
 - `src/library/naming.ts` is the pure parsing layer (season/episode regexes, title cleaning,
-  output file naming). `scanner.ts` walks the media root with `readdir` only (FUSE friendly),
-  `store.ts` holds the in-memory index and `CONFIG_PATH/library.json`.
+  output file naming). `scanner.ts` walks only the selected library folders with `readdir`
+  (FUSE friendly); item ids hash the absolute container path. `store.ts` holds the in-memory
+  index and `CONFIG_PATH/library.json` (invalidated by the sources config hash).
 - `src/media/hls.ts` is the on-demand HLS transcoder: static VOD playlist, 4 s fMP4 segments
   with absolute timestamps (`-output_ts_offset` plus a 1 s pad, `frag_discont`,
   `use_editlist=0`), restart-on-seek, SIGSTOP throttling, idle cleanup. Do not change the
@@ -45,6 +49,9 @@ There is no ffmpeg on the host; anything that touches media runs in a container.
   `ffmpeg.ts`'s `ProcessRegistry`.
 - `web/src/lib/export-options.ts` holds the per-browser export choices; the popovers live in
   `web/src/components/player/ExportOptions.tsx`.
+- `web/src/components/sources/SourcesDialog.tsx` (+ `FolderBrowser.tsx`, `web/src/lib/sources.ts`)
+  is the one management dialog: add/remove sources, browse, tick folders; edits are batched
+  and saved with one PUT per source.
 - `web/src/hooks/useTimeline.ts` owns wavesurfer.js. It is created only after hls.js emits
   `MEDIA_ATTACHED`, always with peaks and duration, and only ever calls `ws.load()` with the
   video's own `src`; anything else clears the MediaSource.

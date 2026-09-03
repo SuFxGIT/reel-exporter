@@ -15,7 +15,9 @@ export type Row =
       name: string
       count: number
       collapsed: boolean
+      available: boolean
     }
+  | { type: "notice"; key: string; text: string }
   | { type: "movie"; key: string; item: LibraryItemSummary; libraryId: string }
   | {
       type: "show"
@@ -66,8 +68,15 @@ export function useLibraryRows(
         name: lib.name,
         count: items.length,
         collapsed,
+        available: lib.available,
       })
       if (collapsed) continue
+      if (!lib.available)
+        rows.push({
+          type: "notice",
+          key: `notice:${lib.id}`,
+          text: "Folder not found. Check that the source is still mounted.",
+        })
       for (const item of items) {
         if (item.type === "movie") {
           rows.push({
@@ -118,7 +127,7 @@ export function useLibraryRows(
         key: "empty",
         text: q
           ? "Nothing matches that search."
-          : "No videos found in the library.",
+          : "No videos found in the selected folders.",
       })
     return rows
   }, [

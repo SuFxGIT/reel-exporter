@@ -30,6 +30,20 @@ export function deinterlaceFilter(
     : null
 }
 
+/**
+ * Some SDR sources (ProRes .mov exports in particular) carry a reserved or missing
+ * transfer characteristic. ffmpeg 8's swscale refuses every conversion from such
+ * frames ("Unsupported input"), so tag them as BT.709 before anything else runs.
+ * HDR sources always have a known transfer and are left alone.
+ */
+export function colorFixup(probe: ProbeResult): string | null {
+  if (probe.hdr.tonemap) return null
+  const t = probe.video?.colorTransfer
+  return !t || t === "unknown" || t === "reserved"
+    ? "setparams=color_trc=bt709"
+    : null
+}
+
 function squarePixels(probe: ProbeResult): string | null {
   const sar = probe.video?.sar ?? 1
   return Math.abs(sar - 1) > 0.01
@@ -40,6 +54,8 @@ function squarePixels(probe: ProbeResult): string | null {
 /** Preview stream: deinterlace, downscale to the preview width, tone-map, 8-bit 4:2:0. */
 export function previewFilters(probe: ProbeResult): string {
   const parts: string[] = []
+  const fix = colorFixup(probe)
+  if (fix) parts.push(fix)
   const de = deinterlaceFilter(probe)
   if (de) parts.push(de)
   parts.push(
@@ -60,6 +76,8 @@ export function fullResFilters(
   maxWidth?: number
 ): string {
   const parts: string[] = []
+  const fix = colorFixup(probe)
+  if (fix) parts.push(fix)
   const de = deinterlaceFilter(probe, deinterlaceMode)
   if (de) parts.push(de)
   if (maxWidth && probe.video && maxWidth < probe.video.displayWidth) {
@@ -71,6 +89,9 @@ export function fullResFilters(
   } else {
     const sq = squarePixels(probe)
     if (sq) parts.push(sq)
+    // Without a scale filter ffmpeg converts at the graph input, before setparams
+    // has run, and the fixup is lost. Make the conversion an explicit step.
+    else if (fix) parts.push("scale=w=iw:h=ih")
   }
   const tm = tonemapChain(probe)
   if (tm) parts.push(tm)
@@ -81,6 +102,8 @@ export function fullResFilters(
 /** Small preview frame (hover thumbnails, capture thumbnails). */
 export function thumbnailFilters(probe: ProbeResult, width: number): string {
   const parts: string[] = []
+  const fix = colorFixup(probe)
+  if (fix) parts.push(fix)
   const de = deinterlaceFilter(probe)
   if (de) parts.push(de)
   parts.push(`scale=w='min(${width},iw*sar)':h=-2:flags=bilinear`, "setsar=1")

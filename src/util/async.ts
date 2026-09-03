@@ -29,6 +29,35 @@ export async function waitFor<T>(
   }
 }
 
+export class TimeoutError extends Error {
+  constructor(what: string, ms: number) {
+    super(`${what} took longer than ${Math.round(ms / 1000)} s`)
+    this.name = "TimeoutError"
+  }
+}
+
+/** Rejects with a TimeoutError when `p` does not settle within `ms`. The timer never keeps the process alive. */
+export function withTimeout<T>(
+  p: Promise<T>,
+  ms: number,
+  what = "operation"
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new TimeoutError(what, ms)), ms)
+    timer.unref()
+    p.then(
+      (v) => {
+        clearTimeout(timer)
+        resolve(v)
+      },
+      (err) => {
+        clearTimeout(timer)
+        reject(err)
+      }
+    )
+  })
+}
+
 /** Writes JSON to a temp file in the same directory, then renames it into place. */
 export async function atomicWriteJson(
   file: string,

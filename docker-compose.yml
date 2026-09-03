@@ -6,7 +6,8 @@ services:
     ports:
       - "7727:7727"
     volumes:
-      - /mnt/user/data/media:/media:ro       # your library; never written to
+      - /mnt/user/data/media:/media:ro       # your library; never written to (pick folders under Sources in the app)
+      # - /mnt/user/other/videos:/media2:ro  # any number of extra read-only sources
       - /mnt/user/data/reel-vault:/output    # screenshots and clips land here
       - /mnt/user/appdata/reel-vault:/config # index, caches and transcode segments
     environment:

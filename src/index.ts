@@ -1,10 +1,12 @@
-import { promises as fs, constants as fsConstants } from "node:fs"
+import { promises as fs } from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 import compression from "compression"
 import express from "express"
 import { pinoHttp } from "pino-http"
 import { config } from "./config.js"
+import { isMountPoint, readMountInfo } from "./library/mounts.js"
+import { DEFAULT_RESERVED_PATHS, SourcesStore } from "./library/sources.js"
 import { LibraryStore } from "./library/store.js"
 import { logger } from "./logger.js"
 import { detectCapabilities, processes } from "./media/ffmpeg.js"
@@ -15,20 +17,18 @@ import { isWritableDir } from "./util/async.js"
 
 const WEB_DIST = fileURLToPath(new URL("../web/dist/", import.meta.url))
 
+/**
+ * First run with no sources.json: register MEDIA_PATH as a source. False keeps the
+ * sidebar empty until the user ticks folders under Sources (Plex behaviour).
+ */
+const SEED_ALL_LIBRARIES = false
+const LEGACY_SKIP_DIRS = new Set(["books", "music", "pictures", "temp"])
+
 async function prepareDirs(): Promise<Runtime> {
   const runtime: Runtime = {
     mediaReadable: false,
     configWritable: false,
     startedAt: Date.now(),
-  }
-  try {
-    await fs.access(config.mediaPath, fsConstants.R_OK)
-    runtime.mediaReadable = true
-  } catch {
-    logger.error(
-      { path: config.mediaPath },
-      "MEDIA_PATH is not readable. Mount your library there (read-only is fine)."
-    )
   }
   runtime.configWritable = await isWritableDir(config.configPath)
   if (!runtime.configWritable) {
@@ -79,17 +79,46 @@ async function main(): Promise<void> {
   if (!caps.tonemap || !caps.zscale)
     logger.warn("ffmpeg lacks zscale/tonemap; HDR sources will look washed out")
 
+  const sources = new SourcesStore({
+    file: config.sourcesFile,
+    writable: runtime.configWritable,
+    reservedPaths: [
+      ...DEFAULT_RESERVED_PATHS,
+      config.configPath,
+      config.outputPath,
+      config.transcodeDir,
+      config.tmpRoot,
+    ],
+    log: logger,
+  })
+  if ((await sources.load()) === "missing") {
+    const mounts = await readMountInfo()
+    if (config.legacySkipDirs)
+      logger.warn(
+        "SKIP_DIRS is deprecated: pick folders under Sources in the app instead"
+      )
+    await sources.seedFromMediaPath(config.mediaPath, {
+      seedAll: SEED_ALL_LIBRARIES,
+      skip: config.legacySkipDirs ?? LEGACY_SKIP_DIRS,
+      mounted: isMountPoint(mounts, config.mediaPath),
+    })
+  }
+  const refreshRuntime = async (): Promise<void> => {
+    const statuses = await sources.status()
+    runtime.mediaReadable = statuses.some((s) => s.readable)
+  }
+  await refreshRuntime()
+
   const store = new LibraryStore({
-    mediaPath: config.mediaPath,
+    sources: () => sources.effective(),
+    configHash: () => sources.configHash(),
     cacheFile: path.join(config.configPath, "library.json"),
-    skipDirs: config.skipDirs,
+    cacheDir: () => config.cacheDir,
     log: logger,
   })
   if (runtime.configWritable) await store.loadCache()
-  if (runtime.mediaReadable) {
-    void store.rescan()
-    store.startInterval(config.scanIntervalMinutes)
-  }
+  if (runtime.mediaReadable) void store.rescan()
+  store.startInterval(config.scanIntervalMinutes)
 
   hlsSessions.start()
   jobs.start()
@@ -117,7 +146,7 @@ async function main(): Promise<void> {
     })
   )
   app.use(express.json({ limit: "64kb" }))
-  app.use("/api", createApi({ store, caps, runtime }))
+  app.use("/api", createApi({ store, sources, caps, runtime, refreshRuntime }))
 
   app.use(
     express.static(WEB_DIST, {
@@ -146,7 +175,7 @@ async function main(): Promise<void> {
     logger.info(
       {
         port: config.port,
-        media: config.mediaPath,
+        sources: sources.list().map((s) => `${s.path}:${s.libraries.length}`),
         output: config.outputPath,
         config: config.configPath,
         transcode: config.transcodeDir,

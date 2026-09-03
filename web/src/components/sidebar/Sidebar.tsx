@@ -5,6 +5,8 @@ import {
   ChevronRight,
   Clapperboard,
   Film,
+  FolderCog,
+  FolderX,
   Loader2,
   RefreshCw,
   Search,
@@ -13,7 +15,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { api, type ItemDetail } from "@/lib/api"
-import { useLibrary, useShows } from "@/lib/queries"
+import { useLibrary, useShows, useSources } from "@/lib/queries"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import {
@@ -21,6 +23,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { SourcesDialog } from "@/components/sources/SourcesDialog"
 import { useLibraryRows, type Row } from "./useLibraryRows"
 
 const ROW = 28
@@ -43,8 +46,11 @@ export function Sidebar({ selectedId, selectedItem, onSelect }: SidebarProps) {
   const [collapsedSeasons, setCollapsedSeasons] = useState<Set<string>>(
     () => new Set()
   )
+  const [sourcesOpen, setSourcesOpen] = useState(false)
+  const [initialPath, setInitialPath] = useState<string | null>(null)
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const sourcesBtnRef = useRef<HTMLElement>(null)
 
   const expandedIds = useMemo(() => [...expandedShows], [expandedShows])
   const showQueries = useShows(expandedIds)
@@ -139,10 +145,12 @@ export function Sidebar({ selectedId, selectedItem, onSelect }: SidebarProps) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null
       if (
         e.key === "/" &&
-        !(e.target instanceof HTMLInputElement) &&
-        !(e.target instanceof HTMLTextAreaElement)
+        !(target instanceof HTMLInputElement) &&
+        !(target instanceof HTMLTextAreaElement) &&
+        !target?.closest('[role="dialog"]')
       ) {
         e.preventDefault()
         inputRef.current?.focus()
@@ -153,6 +161,15 @@ export function Sidebar({ selectedId, selectedItem, onSelect }: SidebarProps) {
   }, [])
 
   const scanning = library.data?.scanning ?? false
+  const noLibraries = Boolean(
+    library.data && library.data.libraries.length === 0
+  )
+  const sources = useSources({ enabled: noLibraries })
+
+  const openSources = (path: string | null = null) => {
+    setInitialPath(path)
+    setSourcesOpen(true)
+  }
 
   return (
     <aside className="bg-sidebar text-sidebar-foreground flex h-full w-full flex-col">
@@ -207,6 +224,22 @@ export function Sidebar({ selectedId, selectedItem, onSelect }: SidebarProps) {
             {scanning ? "Scanning" : "Rescan library"}
           </TooltipContent>
         </Tooltip>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                ref={sourcesBtnRef as React.RefObject<HTMLButtonElement>}
+                variant="ghost"
+                size="icon-sm"
+                onClick={() => openSources()}
+                aria-label="Media sources"
+              />
+            }
+          >
+            <FolderCog className="size-3.5" />
+          </TooltipTrigger>
+          <TooltipContent>Media sources</TooltipContent>
+        </Tooltip>
       </div>
 
       <div
@@ -221,6 +254,14 @@ export function Sidebar({ selectedId, selectedItem, onSelect }: SidebarProps) {
           <div className="text-destructive px-3 py-3 text-xs">
             {(library.error as Error).message}
           </div>
+        ) : noLibraries ? (
+          <NoLibraries
+            scanning={scanning}
+            sourceCount={sources.data?.sources.length ?? 0}
+            candidates={sources.data?.candidates.map((c) => c.path) ?? []}
+            loading={sources.isLoading}
+            onOpen={openSources}
+          />
         ) : (
           <div
             style={{ height: virtualizer.getTotalSize(), position: "relative" }}
@@ -266,7 +307,72 @@ export function Sidebar({ selectedId, selectedItem, onSelect }: SidebarProps) {
               : ""}
         </span>
       </div>
+
+      <SourcesDialog
+        open={sourcesOpen}
+        onOpenChange={setSourcesOpen}
+        scanning={scanning}
+        initialPath={initialPath}
+        returnFocusRef={sourcesBtnRef}
+      />
     </aside>
+  )
+}
+
+function NoLibraries({
+  scanning,
+  sourceCount,
+  candidates,
+  loading,
+  onOpen,
+}: {
+  scanning: boolean
+  sourceCount: number
+  candidates: string[]
+  loading: boolean
+  onOpen: (path?: string | null) => void
+}) {
+  if (scanning) {
+    return (
+      <div className="text-muted-foreground flex items-center gap-2 px-3 py-3 text-xs">
+        <Loader2 className="size-3.5 animate-spin" /> Scanning the selected
+        folders
+      </div>
+    )
+  }
+  if (loading) return null
+  const first = candidates[0]
+  return (
+    <div className="text-muted-foreground flex flex-col gap-2 px-3 py-4 text-xs">
+      <p className="text-foreground text-[13px] font-medium">
+        {sourceCount > 0 ? "No folders selected." : "No libraries yet."}
+      </p>
+      {sourceCount > 0 ? (
+        <p>Tick the folders that should appear as libraries.</p>
+      ) : first ? (
+        <p>
+          <span className="text-foreground/80 font-mono">{first}</span> is
+          mounted in the container but has not been added as a source.
+        </p>
+      ) : (
+        <p>
+          Mount a media folder into the container (for example /media), add it
+          here, then tick the folders to show.
+        </p>
+      )}
+      <div>
+        <Button
+          size="sm"
+          onClick={() => onOpen(sourceCount === 0 ? (first ?? null) : null)}
+        >
+          {sourceCount > 0
+            ? "Choose folders"
+            : first
+              ? `Add ${first}`
+              : "Add a source"}
+        </Button>
+      </div>
+    </div>
   )
 }
 
@@ -307,7 +413,8 @@ function RowView({
           onClick={() => onToggleLibrary(row.libraryId)}
           className={cn(
             base,
-            "text-muted-foreground hover:text-foreground px-2 text-[11px] font-semibold tracking-wide uppercase"
+            "text-muted-foreground hover:text-foreground px-2 text-[11px] font-semibold tracking-wide uppercase",
+            !row.available && "opacity-60"
           )}
         >
           {row.collapsed ? (
@@ -318,6 +425,13 @@ function RowView({
           <span className="truncate">{row.name}</span>
           <span className="ml-auto font-normal tabular-nums">{row.count}</span>
         </button>
+      )
+    case "notice":
+      return (
+        <div className="text-muted-foreground flex h-7 items-center gap-1.5 pr-2 pl-3 text-[12px] italic">
+          <FolderX className="size-3.5 shrink-0 opacity-60" />
+          <span className="truncate">{row.text}</span>
+        </div>
       )
     case "movie": {
       const active = row.item.id === selectedId

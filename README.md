@@ -16,7 +16,7 @@ Reel Vault points at a read-only media share, shows your movies and shows in a c
 - **Frame-accurate screenshots** as PNG or JPEG at the source resolution or scaled to 1080p, 720p or any width. HDR10, HLG and Dolby Vision (profiles 7 and 8) are tone-mapped to SDR so grabs look right.
 - **Clip trimming.** Set in and out points on the timeline, then export an MP4 (H.264 and AAC) cut precisely from the original, at source resolution or 1080p/720p, in three quality levels, with or without audio, with progress and cancel.
 - **A timeline built for precision.** Waveform, ruler, minimap, drag-to-select, draggable in and out handles, zoom at the pointer with Ctrl and the mouse wheel, frame stepping, and hover thumbnails.
-- **Library browser** that mirrors your Plex or TRaSH folders (movies, tv, 4k, anime, and so on) with search, lazy-loaded seasons and episodes, and periodic rescans.
+- **Your folders, your libraries.** Mount one or more media shares read-only, browse them in the app and tick exactly which folders become libraries (a whole `movies 4k` share or a single sub-folder). Unticked folders are never scanned. Search, lazy-loaded seasons and episodes, and periodic rescans included.
 
 ## Quick start
 
@@ -50,11 +50,27 @@ The timezone is picked up from Unraid automatically. PUID and PGID default to 99
 
 Developing on the Unraid box itself? `node scripts/unraid-run.mjs --install-template --recreate` builds the same `docker run` command Unraid would, registers the template and icon, and starts the container.
 
+## Media sources
+
+Reel Vault does not scan a mount blindly. Each mounted folder is a **source**, and inside a source you choose which folders become libraries:
+
+1. Mount your media into the container read-only (`/media` in the template; add `/media2`, `/media3` or any other container path for more shares).
+2. Open **Media sources** (the folder icon at the top of the sidebar). Mounted folders that are not added yet appear as one-click suggestions; you can also type a container path.
+3. Browse the source and tick the folders to import. A folder at any depth can be a library, including the source root itself, but libraries cannot nest. Click a library chip to rename it.
+4. Save. Only the ticked folders are scanned; everything else stays hidden. Each ticked folder shows up as its own library in the sidebar.
+
+![Media sources dialog](docs/sources.png)
+
+Sources are stored in `/config/sources.json`. On first start, `/media` is registered automatically but nothing is imported until you pick folders. The app only ever reads from a source: it never renames, moves, deletes or writes media files, and the dialog warns when a source is mounted read-write.
+
+The same operations are available over the API: `GET /api/sources`, `POST /api/sources {"path":"/media2"}`, `GET /api/sources/:id/browse?path=movies`, `PUT /api/sources/:id/libraries {"libraries":[{"relPath":"movies 4k"},{"relPath":"demos video","name":"Demos"}]}`, `DELETE /api/sources/:id`.
+
 ## Paths and environment
 
 | Path | Mode | Purpose |
 |---|---|---|
-| `/media` | read-only | Your library root. Each top-level folder becomes a library. Never written to. |
+| `/media` | read-only | Your main media share. Pick the folders to import under Media sources. Never written to. |
+| `/media2`, `/media3`, ... | read-only | Optional extra shares. Any container path works; add it under Media sources. |
 | `/output` | read-write | Screenshots (PNG) and clips (MP4), one folder per movie or show. |
 | `/config` | read-write | Library index, probe and waveform caches, and the temporary transcode segments. Safe to delete. |
 
@@ -63,14 +79,14 @@ Developing on the Unraid box itself? `node scripts/unraid-run.mjs --install-temp
 | `PUID` / `PGID` | `99` / `100` | User and group the app runs as; captures are owned by them. |
 | `TZ` | `UTC` | Timezone for logs (Unraid sets it for you). |
 | `LOG_LEVEL` | `info` | `trace`, `debug`, `info`, `warn` or `error`. `debug` logs every ffmpeg command line. |
-| `SCAN_INTERVAL_MINUTES` | `60` | How often the library is rescanned. `0` disables periodic scans. |
-| `SKIP_DIRS` | `books,music,pictures,temp` | Top-level folders to ignore, comma separated. Folders without video are skipped anyway. |
+| `SCAN_INTERVAL_MINUTES` | `60` | How often the selected folders are rescanned. `0` disables periodic scans. |
+| `MEDIA_PATH` | `/media` | The mount registered as the first source on first start. |
 | `CLIP_MAX_SECONDS` | `1800` | Longest clip the export accepts. |
 | `PORT` | `7727` | Container port. Change the host side of the mapping instead. |
 
 ## How it works
 
-- **Library.** The media root is walked once at start (a 21,000 file library takes a few seconds) and cached in `/config/library.json`, so restarts are instant. Movies and shows are recognised from their folder structure, not from their library name: `Show (2022)/Season 01/Show - S01E01 - Title.mkv` is a show, `Movie (1999)/Movie (1999).mkv` is a movie. Episode names like `S01E01`, `S01E01-E02`, `21x1088`, `Ep14` and bare numbers inside a season folder all work.
+- **Library.** Only the folders you ticked are walked (a 1,500 movie folder takes a couple of seconds) and the result is cached in `/config/library.json`, so restarts are instant. Movies and shows are recognised from their folder structure, not from the library name: `Show (2022)/Season 01/Show - S01E01 - Title.mkv` is a show, `Movie (1999)/Movie (1999).mkv` is a movie. Episode names like `S01E01`, `S01E01-E02`, `21x1088`, `Ep14` and bare numbers inside a season folder all work.
 - **Preview.** The server runs ffmpeg per title, producing a 4 second fragmented-MP4 HLS stream (H.264 and AAC, at most 1080p) that hls.js feeds to the browser. Seeking outside the buffered range restarts ffmpeg at that exact segment, so any codec plays and only the part you watch is transcoded. Idle transcodes stop after a minute.
 - **Captures use the original file.** A screenshot decodes the exact frame at the timestamp and writes it at source resolution unless you asked for a smaller size. A clip re-encodes the selected range from the source into an MP4 that plays anywhere. HDR sources go through `zscale` and `tonemap` to BT.709 for both, and any downscale happens before tone-mapping.
 - **Output layout.** `/output/<Title (Year)>/<Title (Year)> - 00-12-34.567.png` for movies and `/output/<Show (Year)>/<Show (Year)> - S01E02 - 00-12-34.567.png` for episodes. Clips use `... - <in> to <out>.mp4`. Unicode titles are kept as they are.

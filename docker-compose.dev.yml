@@ -15,9 +15,10 @@ services:
       LOG_LEVEL: debug
       NODE_ENV: development
     ports:
-      - "7727:7727"
+      - "7728:7727"   # the real container owns 7727; the dev server answers on :7728
     volumes:
       - .:/app
       - /mnt/user/data/media:/media:ro
+      - /mnt/user/data/torrents:/media2:ro
       - ./data/output:/output
       - ./data/config:/config

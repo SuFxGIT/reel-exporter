@@ -12,7 +12,8 @@ const envSchema = z.object({
     .enum(["trace", "debug", "info", "warn", "error", "fatal"])
     .default("info"),
   SCAN_INTERVAL_MINUTES: z.coerce.number().min(0).default(60),
-  SKIP_DIRS: z.string().default("books,music,pictures,temp"),
+  /** Deprecated: only consulted when the first-run seed imports every folder. */
+  SKIP_DIRS: z.string().optional(),
   CLIP_MAX_SECONDS: z.coerce.number().positive().default(1800),
   TRANSCODE_MAX_MB: z.coerce.number().positive().default(4096),
   FFMPEG_PATH: z.string().default("ffmpeg"),
@@ -33,9 +34,12 @@ const env = parsed.data
 
 export const config = {
   port: env.PORT,
+  /** Legacy single library mount; only used to seed sources.json on first run. */
   mediaPath: path.resolve(env.MEDIA_PATH),
   outputPath: path.resolve(env.OUTPUT_PATH),
   configPath: path.resolve(env.CONFIG_PATH),
+  /** Media sources and their selected library folders. */
+  sourcesFile: path.join(path.resolve(env.CONFIG_PATH), "sources.json"),
   /** Probe/peaks caches. Re-pointed at tmpdir by ensureDirs() when CONFIG_PATH is not writable. */
   cacheDir: path.join(path.resolve(env.CONFIG_PATH), "cache"),
   /** HLS segments. CONFIG_PATH/transcode when writable, else tmpdir. Wiped at boot. */
@@ -46,11 +50,13 @@ export const config = {
   tmpRoot: path.join(os.tmpdir(), "reel-vault"),
   logLevel: env.LOG_LEVEL,
   scanIntervalMinutes: env.SCAN_INTERVAL_MINUTES,
-  skipDirs: new Set(
-    env.SKIP_DIRS.split(",")
-      .map((s) => s.trim().toLowerCase())
-      .filter(Boolean)
-  ),
+  legacySkipDirs: env.SKIP_DIRS
+    ? new Set(
+        env.SKIP_DIRS.split(",")
+          .map((s) => s.trim().toLowerCase())
+          .filter(Boolean)
+      )
+    : null,
   clipMaxSeconds: env.CLIP_MAX_SECONDS,
   transcodeMaxBytes: env.TRANSCODE_MAX_MB * 1024 * 1024,
   ffmpegPath: env.FFMPEG_PATH,

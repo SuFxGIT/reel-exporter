@@ -1,4 +1,4 @@
-import { promises as fs } from "node:fs"
+import { promises as fs, type Dirent } from "node:fs"
 import path from "node:path"
 import express, {
   type NextFunction,
@@ -6,9 +6,22 @@ import express, {
   type Response,
   type Router,
 } from "express"
+import pLimit from "p-limit"
 import { z } from "zod"
 import { config } from "../config.js"
-import { safeName } from "../library/naming.js"
+import { detectMounts, isUnder, mountFor } from "../library/mounts.js"
+import {
+  isIgnoredEntry,
+  isVideoFile,
+  naturalCompare,
+  safeName,
+} from "../library/naming.js"
+import {
+  SourcesError,
+  isAncestorRel,
+  normalizeRelPath,
+  type SourcesStore,
+} from "../library/sources.js"
 import type { LibraryStore, PlayableInfo } from "../library/store.js"
 import { logger } from "../logger.js"
 import { captureUrls, takeScreenshot } from "../media/capture.js"
@@ -18,7 +31,7 @@ import { HlsError, hlsSessions } from "../media/hls.js"
 import { jobs } from "../media/jobs.js"
 import { getPeaks } from "../media/peaks.js"
 import { probeFile, type ProbeResult } from "../media/probe.js"
-import { isWritableDir } from "../util/async.js"
+import { TimeoutError, isWritableDir, withTimeout } from "../util/async.js"
 import { resolveInside } from "../util/paths.js"
 
 export class ApiError extends Error {
@@ -40,9 +53,15 @@ export interface Runtime {
 
 export interface ApiDeps {
   store: LibraryStore
+  sources: SourcesStore
   caps: FfmpegCapabilities
   runtime: Runtime
+  /** Recomputes runtime.mediaReadable after the sources changed. */
+  refreshRuntime: () => Promise<void>
 }
+
+const BROWSE_MAX_FOLDERS = 2000
+const BROWSE_COUNT_LIMIT = 300
 
 const CAPTURE_EXT = new Set([".png", ".jpg", ".jpeg", ".mp4"])
 
@@ -86,8 +105,86 @@ const numberParam = (v: unknown, name: string, fallback?: number): number => {
 }
 
 export function createApi(deps: ApiDeps): Router {
-  const { store, caps, runtime } = deps
+  const { store, sources, caps, runtime, refreshRuntime } = deps
   const router = express.Router()
+  // Mount suggestions skip everything a source could never be, including /app.
+  const mountExclude = [
+    ...sources.reservedPaths,
+    config.configPath,
+    config.outputPath,
+    config.transcodeDir,
+    config.tmpRoot,
+  ]
+
+  interface SourceView {
+    id: string
+    path: string
+    hostPath?: string
+    readOnly: boolean
+    exists: boolean
+    readable: boolean
+    libraries: Array<{
+      id: string
+      relPath: string
+      name: string
+      customName: string | null
+      itemCount: number
+      available: boolean
+    }>
+  }
+
+  async function sourcesResponse(): Promise<{
+    persistent: boolean
+    scanning: boolean
+    sources: SourceView[]
+    candidates: Array<{ path: string; hostPath?: string; readOnly: boolean }>
+  }> {
+    const list = sources.list()
+    const effective = sources.effective()
+    const statuses = await sources.status()
+    const counts = store.libraryCounts()
+    const mounts = await detectMounts({ exclude: mountExclude })
+    const views: SourceView[] = list.map((s) => {
+      const st = statuses.find((x) => x.id === s.id)
+      const eff = effective.find((x) => x.id === s.id)
+      const mount = mountFor(mounts, s.path)
+      return {
+        id: s.id,
+        path: s.path,
+        ...(mount?.hostPath ? { hostPath: mount.hostPath } : {}),
+        readOnly: mount?.readOnly ?? false,
+        exists: st?.exists ?? false,
+        readable: st?.readable ?? false,
+        libraries: (eff?.libraries ?? []).map((lib, i) => {
+          const c = counts.get(lib.id)
+          return {
+            id: lib.id,
+            relPath: lib.relPath,
+            name: lib.name,
+            customName: s.libraries[i]?.name ?? null,
+            itemCount: c?.items ?? 0,
+            available: c?.available ?? true,
+          }
+        }),
+      }
+    })
+    const candidates = mounts
+      .filter(
+        (m) =>
+          !list.some((s) => isUnder(m.path, s.path) || isUnder(s.path, m.path))
+      )
+      .map((m) => ({
+        path: m.path,
+        ...(m.hostPath ? { hostPath: m.hostPath } : {}),
+        readOnly: m.readOnly,
+      }))
+    return {
+      persistent: sources.persistent,
+      scanning: store.scanning,
+      sources: views,
+      candidates,
+    }
+  }
 
   async function loadPlayable(
     id: string
@@ -114,8 +211,10 @@ export function createApi(deps: ApiDeps): Router {
     wrap(async (_req, res) => {
       const outputWritable = await isWritableDir(config.outputPath)
       const counts = store.counts()
+      const statuses = await sources.status()
+      const readable = statuses.filter((s) => s.readable).length
       const body = {
-        ok: runtime.mediaReadable && caps.libx264 && caps.aac,
+        ok: caps.libx264 && caps.aac && (statuses.length === 0 || readable > 0),
         version: config.version,
         build: config.build,
         buildDate: config.buildDate,
@@ -136,8 +235,17 @@ export function createApi(deps: ApiDeps): Router {
           scannedAt: store.scannedAt,
           lastError: store.lastError,
         },
+        sources: {
+          total: statuses.length,
+          readable,
+          libraries: sources.list().reduce((n, s) => n + s.libraries.length, 0),
+          persistent: sources.persistent,
+        },
         paths: {
-          media: { path: config.mediaPath, readable: runtime.mediaReadable },
+          sources: statuses.map((s) => ({
+            path: s.path,
+            readable: s.readable,
+          })),
           output: { path: config.outputPath, writable: outputWritable },
           config: { path: config.configPath, writable: runtime.configWritable },
           transcode: config.transcodeDir,
@@ -157,6 +265,190 @@ export function createApi(deps: ApiDeps): Router {
     void store.rescan()
     res.status(202).json({ scanning: true })
   })
+
+  // ---- Sources ---------------------------------------------------------------
+  const addSourceSchema = z.object({ path: z.string().trim().min(1).max(4096) })
+  const librariesSchema = z.object({
+    libraries: z
+      .array(
+        z.object({
+          relPath: z.string().min(1).max(4096),
+          name: z.string().trim().min(1).max(80).optional(),
+        })
+      )
+      .max(200),
+  })
+
+  router.get(
+    "/sources",
+    wrap(async (_req, res) => {
+      res.json(await sourcesResponse())
+    })
+  )
+
+  router.post(
+    "/sources",
+    wrap(async (req, res) => {
+      const { path: p } = parseBody(addSourceSchema, req.body)
+      const created = await sources.addSource(p)
+      await refreshRuntime()
+      const view = (await sourcesResponse()).sources.find(
+        (s) => s.id === created.id
+      )
+      res.status(201).json({ source: view })
+    })
+  )
+
+  router.delete(
+    "/sources/:id",
+    wrap(async (req, res) => {
+      const ok = await sources.removeSource(req.params.id as string)
+      if (!ok)
+        throw new ApiError(
+          404,
+          "No source with that id. Reload the page and try again.",
+          "not_found"
+        )
+      await refreshRuntime()
+      void store.rescan()
+      res.status(204).end()
+    })
+  )
+
+  router.put(
+    "/sources/:id/libraries",
+    wrap(async (req, res) => {
+      const body = parseBody(librariesSchema, req.body)
+      const updated = await sources.setLibraries(
+        req.params.id as string,
+        body.libraries
+      )
+      await refreshRuntime()
+      void store.rescan()
+      const view = (await sourcesResponse()).sources.find(
+        (s) => s.id === updated.id
+      )
+      res.json({ source: view, scanning: true })
+    })
+  )
+
+  router.get(
+    "/sources/:id/browse",
+    wrap(async (req, res) => {
+      const source = sources.get(req.params.id as string)
+      if (!source)
+        throw new ApiError(
+          404,
+          "No source with that id. Reload the page and try again.",
+          "not_found"
+        )
+      const raw = typeof req.query.path === "string" ? req.query.path : "."
+      const norm = normalizeRelPath(raw)
+      const abs =
+        norm === null
+          ? null
+          : norm === "."
+            ? source.path
+            : resolveInside(source.path, norm)
+      if (norm === null || !abs)
+        throw new ApiError(
+          400,
+          'Path must be relative to the source and cannot contain "..".',
+          "bad_request"
+        )
+      let entries: Dirent[]
+      try {
+        entries = await withTimeout(
+          fs.readdir(abs, { withFileTypes: true }),
+          15_000,
+          `Reading ${abs}`
+        )
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException).code
+        if (err instanceof TimeoutError)
+          throw new ApiError(
+            504,
+            `Reading ${abs} took too long. Check that the share is mounted and reachable, then try again.`,
+            "timeout"
+          )
+        if (code === "ENOENT" || code === "ENOTDIR")
+          throw new ApiError(
+            404,
+            `No folder "${norm}" in ${source.path}. It may have been renamed. Go up one level and try again.`,
+            "not_found"
+          )
+        if (code === "EACCES" || code === "EPERM")
+          throw new ApiError(
+            403,
+            `${abs} cannot be read by the app user. Fix the permissions on the host, then try again.`,
+            "forbidden"
+          )
+        throw err
+      }
+      const dirs = entries
+        .filter((e) => e.isDirectory() && !isIgnoredEntry(e.name))
+        .sort((a, b) => naturalCompare(a.name, b.name))
+      const truncated = dirs.length > BROWSE_MAX_FOLDERS
+      const shown = dirs.slice(0, BROWSE_MAX_FOLDERS)
+      const videoCount = entries.filter(
+        (e) => e.isFile() && isVideoFile(e.name)
+      ).length
+      const selection = source.libraries.map((l) => l.relPath)
+      const blockedFor = (rel: string): string | undefined =>
+        selection.find(
+          (s) => s !== rel && (isAncestorRel(s, rel) || isAncestorRel(rel, s))
+        )
+      const counts = new Map<string, number>()
+      if (shown.length <= BROWSE_COUNT_LIMIT) {
+        const limit = pLimit(8)
+        await Promise.all(
+          shown.map((d) =>
+            limit(async () => {
+              try {
+                const sub = await withTimeout(
+                  fs.readdir(path.join(abs, d.name), { withFileTypes: true }),
+                  5000
+                )
+                counts.set(
+                  d.name,
+                  sub.filter((e) => e.isFile() && isVideoFile(e.name)).length
+                )
+              } catch {
+                /* unreadable or slow: leave the count out */
+              }
+            })
+          )
+        )
+      }
+      const folders = shown.map((d) => {
+        const relPath = norm === "." ? d.name : `${norm}/${d.name}`
+        const c = counts.get(d.name)
+        const blocked = blockedFor(relPath)
+        return {
+          name: d.name,
+          relPath,
+          ...(c !== undefined ? { videoCount: c } : {}),
+          selected: selection.includes(relPath),
+          ...(blocked ? { blockedBy: blocked } : {}),
+        }
+      })
+      const blockedHere = blockedFor(norm)
+      res.json({
+        path: norm,
+        parentPath:
+          norm === "."
+            ? null
+            : norm.includes("/")
+              ? path.posix.dirname(norm)
+              : ".",
+        selected: selection.includes(norm),
+        ...(blockedHere ? { blockedBy: blockedHere } : {}),
+        videoCount,
+        truncated,
+        folders,
+      })
+    })
+  )
 
   router.get("/shows/:id", (req, res) => {
     const show = store.getShow(req.params.id as string)
@@ -571,6 +863,12 @@ export function errorHandler(
     res
       .status(err.status)
       .json({ error: { code: "hls", message: err.message } })
+    return
+  }
+  if (err instanceof SourcesError) {
+    res
+      .status(err.status)
+      .json({ error: { code: err.code, message: err.message } })
     return
   }
   const anyErr = err as {

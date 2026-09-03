@@ -71,11 +71,34 @@ export function useJob(jobId: string | null) {
   })
 }
 
+export function useSources(opts: { enabled?: boolean } = {}) {
+  return useQuery({
+    queryKey: ["sources"],
+    queryFn: api.sources,
+    staleTime: 30_000,
+    enabled: opts.enabled ?? true,
+  })
+}
+
+export function useBrowse(sourceId: string | null, relPath: string) {
+  return useQuery({
+    queryKey: ["browse", sourceId, relPath],
+    queryFn: () => api.browse(sourceId!, relPath),
+    enabled: sourceId !== null,
+    staleTime: 60_000,
+    retry: false,
+    // Keep the previous listing only while staying inside the same source.
+    placeholderData: (prev, prevQuery) =>
+      prevQuery?.queryKey[1] === sourceId ? prev : undefined,
+  })
+}
+
 export function useInvalidate() {
   const qc = useQueryClient()
   return {
     captures: (id: string) =>
       qc.invalidateQueries({ queryKey: ["captures", id] }),
     library: () => qc.invalidateQueries({ queryKey: ["library"] }),
+    sources: () => qc.invalidateQueries({ queryKey: ["sources"] }),
   }
 }

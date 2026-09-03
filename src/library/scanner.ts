@@ -5,7 +5,6 @@ import type { Logger } from "../logger.js"
 import {
   cleanEpisodeTitle,
   cleanTitle,
-  displayLibraryName,
   extOf,
   hashId,
   isIgnoredEntry,
@@ -16,14 +15,17 @@ import {
   sortKey,
   stemOf,
 } from "./naming.js"
+import type { EffectiveLibrary, EffectiveSource } from "./sources.js"
 
 export interface Movie {
   id: string
   kind: "movie"
   libraryId: string
+  sourceId: string
   title: string
   year?: number
   sortTitle: string
+  /** Relative to the source root, posix separators. */
   relPath: string
   ext: string
 }
@@ -32,6 +34,7 @@ export interface Episode {
   id: string
   kind: "episode"
   libraryId: string
+  sourceId: string
   showId: string
   season: number
   episode: number
@@ -53,6 +56,7 @@ export interface Show {
   id: string
   kind: "show"
   libraryId: string
+  sourceId: string
   title: string
   year?: number
   sortTitle: string
@@ -66,9 +70,13 @@ export type Playable = Movie | Episode
 
 export interface Library {
   id: string
-  dirName: string
+  sourceId: string
+  /** Folder relative to the source root ("." for the root itself). */
+  relPath: string
   name: string
   kind: "movies" | "shows" | "mixed"
+  /** False when the folder was missing or unreadable during the last scan. */
+  available: boolean
   items: LibraryItem[]
 }
 
@@ -80,26 +88,38 @@ export interface ScanStats {
 }
 
 export interface ScanResult {
-  version: 1
+  version: 2
   scannedAt: string
-  mediaPath: string
+  /** Hash of the source configuration that produced this result. */
+  configHash: string
+  /** Snapshot of the sources that were scanned (paths resolve items to files). */
+  sources: EffectiveSource[]
   libraries: Library[]
   stats: ScanStats
 }
 
 export interface ScanOptions {
-  skipDirs: Set<string>
+  configHash: string
   log?: Logger
 }
 
 const MAX_ITEM_DEPTH = 3
 
 interface Ctx {
-  mediaPath: string
+  source: EffectiveSource
   log?: Logger
   stats: ScanStats
   limit: ReturnType<typeof pLimit>
 }
+
+const absOf = (ctx: Ctx, rel: string): string =>
+  rel === "." ? ctx.source.path : path.join(ctx.source.path, rel)
+
+const idOf = (ctx: Ctx, rel: string): string =>
+  hashId(rel === "." ? ctx.source.path : path.posix.join(ctx.source.path, rel))
+
+const joinRel = (base: string, name: string): string =>
+  base === "." ? name : `${base}/${name}`
 
 async function readdirSafe(ctx: Ctx, abs: string): Promise<Dirent[]> {
   try {
@@ -146,15 +166,17 @@ async function listVideos(
 }
 
 function movieFromFile(
+  ctx: Ctx,
   libraryId: string,
   relPath: string,
   title: string,
   year?: number
 ): Movie {
   return {
-    id: hashId(relPath),
+    id: idOf(ctx, relPath),
     kind: "movie",
     libraryId,
+    sourceId: ctx.source.id,
     title,
     ...(year ? { year } : {}),
     sortTitle: sortKey(title),
@@ -164,6 +186,7 @@ function movieFromFile(
 }
 
 function buildMovies(
+  ctx: Ctx,
   libraryId: string,
   relDir: string,
   videos: string[]
@@ -172,6 +195,7 @@ function buildMovies(
   if (videos.length === 1) {
     return [
       movieFromFile(
+        ctx,
         libraryId,
         `${relDir}/${videos[0]}`,
         folder.title,
@@ -182,6 +206,7 @@ function buildMovies(
   return videos.map((v) => {
     const file = cleanTitle(stemOf(v), { fromFile: true })
     return movieFromFile(
+      ctx,
       libraryId,
       `${relDir}/${v}`,
       file.title || folder.title,
@@ -198,12 +223,13 @@ async function buildShow(
   seasonDirs: Dirent[],
   otherDirs: Dirent[]
 ): Promise<Show | null> {
-  const absDir = path.join(ctx.mediaPath, relDir)
+  const absDir = absOf(ctx, relDir)
   const folder = cleanTitle(path.basename(relDir), { fromFile: false })
   const show: Show = {
-    id: hashId(relDir),
+    id: idOf(ctx, relDir),
     kind: "show",
     libraryId,
+    sourceId: ctx.source.id,
     title: folder.title,
     ...(folder.year ? { year: folder.year } : {}),
     sortTitle: sortKey(folder.title),
@@ -238,9 +264,10 @@ async function buildShow(
       seasons.set(season, s)
     }
     s.episodes.push({
-      id: hashId(fileRel),
+      id: idOf(ctx, fileRel),
       kind: "episode",
       libraryId,
+      sourceId: ctx.source.id,
       showId: show.id,
       season,
       episode,
@@ -336,7 +363,7 @@ async function classifyItemDir(
   relDir: string,
   depth: number
 ): Promise<LibraryItem[]> {
-  const absDir = path.join(ctx.mediaPath, relDir)
+  const absDir = absOf(ctx, relDir)
   const entries = await readdirSafe(ctx, absDir)
   const videos = sortByName(
     entries.filter((e) => e.isFile() && isVideoFile(e.name))
@@ -365,7 +392,7 @@ async function classifyItemDir(
   }
   if (videos.length > 0) {
     ctx.stats.files += videos.length
-    return buildMovies(libraryId, relDir, videos)
+    return buildMovies(ctx, libraryId, relDir, videos)
   }
   if (otherDirs.length > 0 && depth < MAX_ITEM_DEPTH) {
     const nested = await Promise.all(
@@ -378,9 +405,27 @@ async function classifyItemDir(
   return []
 }
 
-async function scanLibraryDir(ctx: Ctx, dirName: string): Promise<Library> {
-  const libraryId = hashId(dirName)
-  const entries = await readdirSafe(ctx, path.join(ctx.mediaPath, dirName))
+/** Scans one selected library folder. A missing or unreadable folder yields an empty, unavailable library. */
+async function scanLibrary(ctx: Ctx, lib: EffectiveLibrary): Promise<Library> {
+  const absDir = absOf(ctx, lib.relPath)
+  const base = {
+    id: lib.id,
+    sourceId: ctx.source.id,
+    relPath: lib.relPath,
+    name: lib.name,
+  }
+  let entries: Dirent[]
+  try {
+    entries = await fs.readdir(absDir, { withFileTypes: true })
+    ctx.stats.dirs++
+  } catch (err) {
+    ctx.stats.warnings++
+    ctx.log?.warn(
+      { dir: absDir, err: (err as Error).message },
+      "scan: library folder is missing or unreadable"
+    )
+    return { ...base, kind: "movies", available: false, items: [] }
+  }
   const items: LibraryItem[] = []
   const tasks: Promise<LibraryItem[]>[] = []
   for (const e of sortByName(entries)) {
@@ -389,14 +434,20 @@ async function scanLibraryDir(ctx: Ctx, dirName: string): Promise<Library> {
       if (isVideoFile(e.name)) {
         const t = cleanTitle(stemOf(e.name), { fromFile: true })
         items.push(
-          movieFromFile(libraryId, `${dirName}/${e.name}`, t.title, t.year)
+          movieFromFile(
+            ctx,
+            lib.id,
+            joinRel(lib.relPath, e.name),
+            t.title,
+            t.year
+          )
         )
         ctx.stats.files++
       }
     } else if (e.isDirectory()) {
       tasks.push(
         ctx.limit(() =>
-          classifyItemDir(ctx, libraryId, `${dirName}/${e.name}`, 1)
+          classifyItemDir(ctx, lib.id, joinRel(lib.relPath, e.name), 1)
         )
       )
     }
@@ -410,44 +461,38 @@ async function scanLibraryDir(ctx: Ctx, dirName: string): Promise<Library> {
   const shows = items.filter((i) => i.kind === "show").length
   const kind: Library["kind"] =
     shows === 0 ? "movies" : shows === items.length ? "shows" : "mixed"
-  return {
-    id: libraryId,
-    dirName,
-    name: displayLibraryName(dirName),
-    kind,
-    items,
-  }
+  return { ...base, kind, available: true, items }
 }
 
-export async function scanMedia(
-  mediaPath: string,
+/**
+ * Scans exactly the selected library folders of every source. The source roots
+ * themselves are never listed, so unselected folders are never touched.
+ */
+export async function scanSources(
+  sources: EffectiveSource[],
   opts: ScanOptions
 ): Promise<ScanResult> {
   const started = Date.now()
-  const ctx: Ctx = {
-    mediaPath,
-    log: opts.log,
-    stats: { files: 0, dirs: 0, warnings: 0, ms: 0 },
-    limit: pLimit(8),
-  }
-  const top = await readdirSafe(ctx, mediaPath)
+  const stats: ScanStats = { files: 0, dirs: 0, warnings: 0, ms: 0 }
+  const limit = pLimit(8)
   const libraries: Library[] = []
-  for (const e of sortByName(top)) {
-    if (
-      !e.isDirectory() ||
-      isIgnoredEntry(e.name) ||
-      opts.skipDirs.has(e.name.toLowerCase())
-    )
-      continue
-    const lib = await scanLibraryDir(ctx, e.name)
-    if (lib.items.length > 0) libraries.push(lib)
+  for (const source of sources) {
+    const ctx: Ctx = { source, log: opts.log, stats, limit }
+    for (const lib of source.libraries) {
+      libraries.push(await scanLibrary(ctx, lib))
+    }
   }
-  ctx.stats.ms = Date.now() - started
+  libraries.sort(
+    (a, b) =>
+      naturalCompare(a.name, b.name) || naturalCompare(a.relPath, b.relPath)
+  )
+  stats.ms = Date.now() - started
   return {
-    version: 1,
+    version: 2,
     scannedAt: new Date().toISOString(),
-    mediaPath,
+    configHash: opts.configHash,
+    sources: structuredClone(sources),
     libraries,
-    stats: ctx.stats,
+    stats,
   }
 }
