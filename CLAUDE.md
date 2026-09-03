@@ -39,9 +39,12 @@ There is no ffmpeg on the host; anything that touches media runs in a container.
   ffmpeg flags without re-running the timestamp checks in the README's development notes.
 - `src/media/filters.ts` builds the filter chains (deinterlace, scale, zscale+tonemap for
   HDR). `probe.ts` classifies HDR (pq, hlg, dovi-p5, unknown-hdr) from ffprobe JSON.
-- `src/media/capture.ts` (screenshots), `jobs.ts` (clip queue), `peaks.ts` (waveform),
+- `src/media/capture.ts` (screenshots: PNG/JPEG, optional max width), `jobs.ts` (clip queue:
+  quality presets, optional max width, audio or none), `peaks.ts` (waveform),
   `frames.ts` (hover and capture thumbnails). All child processes go through
   `ffmpeg.ts`'s `ProcessRegistry`.
+- `web/src/lib/export-options.ts` holds the per-browser export choices; the popovers live in
+  `web/src/components/player/ExportOptions.tsx`.
 - `web/src/hooks/useTimeline.ts` owns wavesurfer.js. It is created only after hls.js emits
   `MEDIA_ATTACHED`, always with peaks and duration, and only ever calls `ws.load()` with the
   video's own `src`; anything else clears the MediaSource.

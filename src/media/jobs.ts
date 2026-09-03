@@ -23,10 +23,22 @@ import type { ProbeResult } from "./probe.js"
 
 export type JobStatus = "queued" | "running" | "done" | "failed" | "cancelled"
 
+export type ClipQuality = "high" | "balanced" | "small"
+
 export interface ClipParams {
   start: number
   end: number
+  /** Audio stream index, or -1 for no audio. */
   audio: number
+  quality: ClipQuality
+  /** Downscale so the width is at most this many pixels; omit for source resolution. */
+  maxWidth?: number
+}
+
+const QUALITY: Record<ClipQuality, { crf: string; preset: string }> = {
+  high: { crf: "18", preset: "medium" },
+  balanced: { crf: "20", preset: "medium" },
+  small: { crf: "24", preset: "fast" },
 }
 
 export interface Job {
@@ -130,8 +142,9 @@ class JobManager {
     if (internal.cancelled) return
     job.status = "running"
     job.startedAt = new Date().toISOString()
-    const { start, end, audio } = job.params
+    const { start, end, audio, quality, maxWidth } = job.params
     const duration = end - start
+    const q = QUALITY[quality] ?? QUALITY.balanced
     const suffix = `${formatTimestampForName(start)} to ${formatTimestampForName(end)}`
     let target: CaptureTarget | null = null
     try {
@@ -168,13 +181,13 @@ class JobManager {
           "-filter_threads",
           "4",
           "-vf",
-          fullResFilters(probe, "yuv420p", "field"),
+          fullResFilters(probe, "yuv420p", "field", maxWidth),
           "-c:v",
           "libx264",
           "-preset",
-          "medium",
+          q.preset,
           "-crf",
-          "20",
+          q.crf,
           "-profile:v",
           "high",
           "-pix_fmt",

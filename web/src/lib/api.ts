@@ -110,7 +110,13 @@ export interface Job {
   status: "queued" | "running" | "done" | "failed" | "cancelled"
   progress: number
   createdAt: string
-  params: { start: number; end: number; audio: number }
+  params: {
+    start: number
+    end: number
+    audio: number
+    quality: "high" | "balanced" | "small"
+    maxWidth?: number
+  }
   output?: {
     relPath: string
     name: string
@@ -130,6 +136,7 @@ export interface CapturesResponse {
 export interface ScreenshotResponse {
   file: string
   name: string
+  format: "png" | "jpeg"
   width: number
   height: number
   size: number
@@ -191,17 +198,27 @@ export const api = {
     }
     return { pending: false, data: (await res.json()) as PeaksData }
   },
-  screenshot: (id: string, t: number) =>
+  screenshot: (
+    id: string,
+    t: number,
+    opts: { format: "png" | "jpeg"; maxWidth?: number }
+  ) =>
     request<ScreenshotResponse>(`/api/items/${id}/screenshot`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ t }),
+      body: JSON.stringify({ t, ...opts }),
     }),
-  clip: (id: string, start: number, end: number, audio: number) =>
+  clip: (
+    id: string,
+    start: number,
+    end: number,
+    audio: number,
+    opts: { quality: "high" | "balanced" | "small"; maxWidth?: number }
+  ) =>
     request<{ jobId: string; job: Job }>(`/api/items/${id}/clip`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ start, end, audio }),
+      body: JSON.stringify({ start, end, audio, ...opts }),
     }),
   captures: (id: string) =>
     request<CapturesResponse>(`/api/items/${id}/captures`),

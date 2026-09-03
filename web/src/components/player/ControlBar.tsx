@@ -1,14 +1,11 @@
 import {
-  Camera,
   ChevronFirst,
   ChevronLast,
-  Loader2,
   Maximize2,
   Pause,
   Play,
   RotateCcw,
   RotateCw,
-  Scissors,
   Volume2,
   VolumeX,
   X,
@@ -18,6 +15,8 @@ import {
 import type { MediaState } from "@/hooks/useMediaState"
 import type { PlaybackClock } from "@/hooks/usePlaybackClock"
 import type { Selection } from "@/hooks/useSelection"
+import type { ItemDetail } from "@/lib/api"
+import type { useExportOptions } from "@/lib/export-options"
 import { formatTime } from "@/lib/time"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -27,6 +26,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip"
+import { ExportButton, ScreenshotButton } from "./ExportOptions"
 import { TimeReadout } from "./TimeReadout"
 
 export interface PlayerActions {
@@ -47,6 +47,8 @@ export interface PlayerActions {
 }
 
 interface Props {
+  item: ItemDetail
+  exportOptions: ReturnType<typeof useExportOptions>
   media: MediaState
   clock: PlaybackClock
   duration: number
@@ -97,6 +99,8 @@ function IconButton({
 }
 
 export function ControlBar({
+  item,
+  exportOptions,
   media,
   clock,
   duration,
@@ -106,7 +110,6 @@ export function ControlBar({
   zoom,
   actions,
 }: Props) {
-  const selLen = selection ? selection.end - selection.start : 0
   return (
     <div className="flex h-10 shrink-0 items-center gap-0.5 border-t border-b px-1.5">
       <IconButton
@@ -161,23 +164,13 @@ export function ControlBar({
 
       <div className="mx-auto" />
 
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={actions.screenshot}
-              disabled={!hasVideo || busy.screenshot}
-              className="gap-1.5"
-            />
-          }
-        >
-          {busy.screenshot ? <Loader2 className="animate-spin" /> : <Camera />}
-          <span className="hidden xl:inline">Screenshot</span>
-        </TooltipTrigger>
-        <TooltipContent>Save a PNG of this frame (S)</TooltipContent>
-      </Tooltip>
+      <ScreenshotButton
+        item={item}
+        options={exportOptions.screenshot}
+        onChange={exportOptions.setScreenshot}
+        busy={busy.screenshot}
+        onCapture={actions.screenshot}
+      />
 
       <div className="bg-border mx-1 h-5 w-px" />
 
@@ -208,38 +201,16 @@ export function ControlBar({
           </IconButton>
         </>
       )}
-      <Tooltip>
-        <TooltipTrigger
-          render={
-            <Button
-              size="sm"
-              onClick={actions.exportClip}
-              disabled={!selection || busy.export}
-              className="ml-1 gap-1.5"
-            />
-          }
-        >
-          {busy.export ? <Loader2 className="animate-spin" /> : <Scissors />}
-          <span>
-            Export
-            {selection ? (
-              <span className="tnum">
-                {" "}
-                {selLen >= 60
-                  ? `${Math.floor(selLen / 60)}m ${Math.round(selLen % 60)}s`
-                  : `${selLen.toFixed(1)}s`}
-              </span>
-            ) : (
-              ""
-            )}
-          </span>
-        </TooltipTrigger>
-        <TooltipContent>
-          {selection
-            ? "Export the selection as an MP4 (E)"
-            : "Set in and out points first"}
-        </TooltipContent>
-      </Tooltip>
+      <div className="ml-1">
+        <ExportButton
+          item={item}
+          options={exportOptions.clip}
+          onChange={exportOptions.setClip}
+          selection={selection}
+          busy={busy.export}
+          onExport={actions.exportClip}
+        />
+      </div>
 
       <div className="bg-border mx-1 h-5 w-px" />
 

@@ -55,14 +55,23 @@ export function previewFilters(probe: ProbeResult): string {
 /** Full-resolution output (screenshots, clips). */
 export function fullResFilters(
   probe: ProbeResult,
-  pixelFormat: "yuv420p" | "rgb24",
-  deinterlaceMode: "frame" | "field"
+  pixelFormat: "yuv420p" | "rgb24" | "yuvj420p",
+  deinterlaceMode: "frame" | "field",
+  maxWidth?: number
 ): string {
   const parts: string[] = []
   const de = deinterlaceFilter(probe, deinterlaceMode)
   if (de) parts.push(de)
-  const sq = squarePixels(probe)
-  if (sq) parts.push(sq)
+  if (maxWidth && probe.video && maxWidth < probe.video.displayWidth) {
+    // Downscale before tone-mapping: that is where the cost is.
+    parts.push(
+      `scale=w='min(${maxWidth},iw*sar)':h=-2:flags=lanczos`,
+      "setsar=1"
+    )
+  } else {
+    const sq = squarePixels(probe)
+    if (sq) parts.push(sq)
+  }
   const tm = tonemapChain(probe)
   if (tm) parts.push(tm)
   parts.push(`format=${pixelFormat}`)

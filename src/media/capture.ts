@@ -7,7 +7,7 @@ import type { PlayableInfo } from "../library/store.js"
 import { logger } from "../logger.js"
 import { exists } from "../util/async.js"
 import { toUrlPath } from "../util/paths.js"
-import { lastLines, runFfmpeg } from "./ffmpeg.js"
+import { lastLines, runFfmpeg, runFfprobe } from "./ffmpeg.js"
 import { fullResFilters, inputArgs } from "./filters.js"
 import type { ProbeResult } from "./probe.js"
 
@@ -61,26 +61,62 @@ export function releaseCapture(target: CaptureTarget): void {
   reserved.delete(target.absPath)
 }
 
+export type ScreenshotFormat = "png" | "jpeg"
+
+export interface ScreenshotOptions {
+  format: ScreenshotFormat
+  /** Downscale so the width is at most this many pixels; omit for source resolution. */
+  maxWidth?: number
+}
+
 export interface ScreenshotResult {
   relPath: string
   name: string
+  format: ScreenshotFormat
   width: number
   height: number
   size: number
 }
 
-/** Writes a PNG of the frame at `t` from the original file, at source resolution. */
+async function imageDimensions(
+  file: string
+): Promise<{ width: number; height: number } | null> {
+  const res = await runFfprobe(
+    [
+      "-v",
+      "error",
+      "-select_streams",
+      "v:0",
+      "-show_entries",
+      "stream=width,height",
+      "-of",
+      "csv=p=0",
+      file,
+    ],
+    { kind: "probe", timeoutMs: 15_000 }
+  )
+  const m = /^(\d+),(\d+)/.exec(Buffer.from(res.stdout).toString("utf8").trim())
+  return m ? { width: Number(m[1]), height: Number(m[2]) } : null
+}
+
+/** Writes the frame at `t` from the original file as PNG or JPEG. */
 export function takeScreenshot(
   info: PlayableInfo,
   probe: ProbeResult,
-  t: number
+  t: number,
+  opts: ScreenshotOptions
 ): Promise<ScreenshotResult> {
   return screenshotQueue.add(async () => {
     if (!probe.hasVideo || !probe.video)
       throw new Error("This file has no video stream to capture.")
-    const target = await allocateCapture(info, formatTimestampForName(t), "png")
-    const tmp = `${target.absPath}.tmp.png`
+    const ext = opts.format === "jpeg" ? "jpg" : "png"
+    const target = await allocateCapture(info, formatTimestampForName(t), ext)
+    const tmp = `${target.absPath}.tmp.${ext}`
     try {
+      const encoder =
+        opts.format === "jpeg"
+          ? ["-c:v", "mjpeg", "-q:v", "2", "-huffman", "optimal"]
+          : ["-c:v", "png", "-compression_level", "6"]
       const args = [
         "-hide_banner",
         "-nostdin",
@@ -101,11 +137,13 @@ export function takeScreenshot(
         "-filter_threads",
         "4",
         "-vf",
-        fullResFilters(probe, "rgb24", "frame"),
-        "-c:v",
-        "png",
-        "-compression_level",
-        "6",
+        fullResFilters(
+          probe,
+          opts.format === "jpeg" ? "yuvj420p" : "rgb24",
+          "frame",
+          opts.maxWidth
+        ),
+        ...encoder,
         "-update",
         "1",
         "-f",
@@ -124,13 +162,20 @@ export function takeScreenshot(
           `ffmpeg could not capture the frame: ${lastLines(res.stderr, 3) || `exit ${res.exitCode}`}`
         )
       }
+      const dims = (await imageDimensions(tmp)) ?? {
+        width: probe.video.displayWidth,
+        height: probe.video.height,
+      }
       await fs.rename(tmp, target.absPath)
-      logger.info({ file: target.relPath, t }, "screenshot saved")
+      logger.info(
+        { file: target.relPath, t, format: opts.format, ...dims },
+        "screenshot saved"
+      )
       return {
         relPath: target.relPath,
         name: target.name,
-        width: probe.video.displayWidth,
-        height: probe.video.height,
+        format: opts.format,
+        ...dims,
         size: st.size,
       }
     } finally {

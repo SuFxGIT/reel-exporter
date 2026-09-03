@@ -7,6 +7,7 @@ import { useSelection, type Selection } from "@/hooks/useSelection"
 import { useShortcuts } from "@/hooks/useShortcuts"
 import { useTimeline, type ZoomState } from "@/hooks/useTimeline"
 import { api, hlsUrl, type ItemDetail } from "@/lib/api"
+import { maxWidthFor, useExportOptions } from "@/lib/export-options"
 import { stepFrames } from "@/lib/frame-step"
 import { decodePeaks, useInvalidate, useJob, usePeaks } from "@/lib/queries"
 import { CapturesStrip } from "@/components/captures/CapturesStrip"
@@ -54,6 +55,8 @@ export function Player({ item, onToggleSidebar }: Props) {
   const job = useJob(jobId)
   const [shotBusy, setShotBusy] = useState(false)
   const invalidate = useInvalidate()
+  const exportOptions = useExportOptions()
+  const { screenshot: shotOpts, clip: clipOpts } = exportOptions
 
   useEffect(() => {
     setVideoEl(videoRef.current)
@@ -151,10 +154,13 @@ export function Player({ item, onToggleSidebar }: Props) {
         const t = clock.now()
         setShotBusy(true)
         api
-          .screenshot(item.id, t)
+          .screenshot(item.id, t, {
+            format: shotOpts.format,
+            maxWidth: maxWidthFor(shotOpts.size, shotOpts.customWidth),
+          })
           .then((res) => {
             toast.success("Screenshot saved", {
-              description: res.name,
+              description: `${res.name} · ${res.width}×${res.height}`,
               action: {
                 label: "Open",
                 onClick: () => window.open(res.url, "_blank"),
@@ -170,7 +176,16 @@ export function Player({ item, onToggleSidebar }: Props) {
       exportClip: () => {
         if (!selection || exporting) return
         api
-          .clip(item.id, selection.start, selection.end, audio)
+          .clip(
+            item.id,
+            selection.start,
+            selection.end,
+            clipOpts.audio ? audio : -1,
+            {
+              quality: clipOpts.quality,
+              maxWidth: maxWidthFor(clipOpts.size),
+            }
+          )
           .then((res) => {
             setJobId(res.jobId)
             toast("Exporting clip", {
@@ -227,6 +242,8 @@ export function Player({ item, onToggleSidebar }: Props) {
     audio,
     invalidate,
     timeline,
+    shotOpts,
+    clipOpts,
   ])
 
   useShortcuts(actions, true)
@@ -260,6 +277,8 @@ export function Player({ item, onToggleSidebar }: Props) {
         onToggleFullscreen={actions.toggleFullscreen}
       />
       <ControlBar
+        item={item}
+        exportOptions={exportOptions}
         media={media}
         clock={clock}
         duration={item.duration}

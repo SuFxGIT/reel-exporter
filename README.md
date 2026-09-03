@@ -13,8 +13,8 @@ Reel Vault points at a read-only media share, shows your movies and shows in a c
 ## Features
 
 - **Plays everything.** MKV, MP4, AVI, TS and friends with H.264, HEVC, AV1, 10-bit and HDR video and AC3, DTS, TrueHD or AAC audio all stream as an on-the-fly HLS preview (H.264 and AAC, up to 1080p). Seeking anywhere in a 60 GB remux starts within a couple of seconds.
-- **Frame-accurate screenshots** at the source resolution, saved as PNG. HDR10, HLG and Dolby Vision (profiles 7 and 8) are tone-mapped to SDR so grabs look right.
-- **Clip trimming.** Set in and out points on the timeline, then export an MP4 (H.264 and AAC, source resolution) cut precisely from the original, with progress and cancel.
+- **Frame-accurate screenshots** as PNG or JPEG at the source resolution or scaled to 1080p, 720p or any width. HDR10, HLG and Dolby Vision (profiles 7 and 8) are tone-mapped to SDR so grabs look right.
+- **Clip trimming.** Set in and out points on the timeline, then export an MP4 (H.264 and AAC) cut precisely from the original, at source resolution or 1080p/720p, in three quality levels, with or without audio, with progress and cancel.
 - **A timeline built for precision.** Waveform, ruler, minimap, drag-to-select, draggable in and out handles, zoom at the pointer with Ctrl and the mouse wheel, frame stepping, and hover thumbnails.
 - **Library browser** that mirrors your Plex or TRaSH folders (movies, tv, 4k, anime, and so on) with search, lazy-loaded seasons and episodes, and periodic rescans.
 
@@ -72,8 +72,25 @@ Developing on the Unraid box itself? `node scripts/unraid-run.mjs --install-temp
 
 - **Library.** The media root is walked once at start (a 21,000 file library takes a few seconds) and cached in `/config/library.json`, so restarts are instant. Movies and shows are recognised from their folder structure, not from their library name: `Show (2022)/Season 01/Show - S01E01 - Title.mkv` is a show, `Movie (1999)/Movie (1999).mkv` is a movie. Episode names like `S01E01`, `S01E01-E02`, `21x1088`, `Ep14` and bare numbers inside a season folder all work.
 - **Preview.** The server runs ffmpeg per title, producing a 4 second fragmented-MP4 HLS stream (H.264 and AAC, at most 1080p) that hls.js feeds to the browser. Seeking outside the buffered range restarts ffmpeg at that exact segment, so any codec plays and only the part you watch is transcoded. Idle transcodes stop after a minute.
-- **Captures use the original file.** A screenshot decodes the exact frame at the timestamp and writes a PNG at source resolution. A clip re-encodes the selected range from the source into an MP4 that plays anywhere. HDR sources go through `zscale` and `tonemap` to BT.709 for both.
+- **Captures use the original file.** A screenshot decodes the exact frame at the timestamp and writes it at source resolution unless you asked for a smaller size. A clip re-encodes the selected range from the source into an MP4 that plays anywhere. HDR sources go through `zscale` and `tonemap` to BT.709 for both, and any downscale happens before tone-mapping.
 - **Output layout.** `/output/<Title (Year)>/<Title (Year)> - 00-12-34.567.png` for movies and `/output/<Show (Year)>/<Show (Year)> - S01E02 - 00-12-34.567.png` for episodes. Clips use `... - <in> to <out>.mp4`. Unicode titles are kept as they are.
+
+## Export options
+
+The small arrow next to **Screenshot** and **Export** opens the options for that capture. They are remembered per browser, and the `S` and `E` shortcuts reuse the last choices.
+
+| Screenshot | Choices |
+|---|---|
+| Format | PNG (lossless) or JPEG (quality 92) |
+| Size | Source, 1080p, 720p, or a custom maximum width |
+
+| Clip | Choices |
+|---|---|
+| Size | Source, 1080p or 720p |
+| Quality | High (CRF 18), Balanced (CRF 20) or Small (CRF 24, faster) |
+| Audio | The track selected in the header, or none |
+
+Sizes are width limits that keep the source aspect ratio, so a 2.39:1 film at "1080p" comes out 1920×804. The API accepts the same fields: `POST /api/items/:id/screenshot {"t":600,"format":"jpeg","maxWidth":1920}` and `POST /api/items/:id/clip {"start":60,"end":70,"quality":"small","maxWidth":1280,"audio":-1}`.
 
 ## Keyboard shortcuts
 

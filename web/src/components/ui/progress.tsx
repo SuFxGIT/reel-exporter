@@ -13,10 +13,16 @@ function Progress({ className, value, ...props }: ProgressProps) {
       aria-valuemax={100}
       aria-valuenow={v}
       data-slot="progress"
-      className={cn("relative h-2 w-full overflow-hidden rounded-full bg-muted", className)}
+      className={cn(
+        "bg-muted relative h-2 w-full overflow-hidden rounded-full",
+        className
+      )}
       {...props}
     >
-      <div className="h-full bg-primary transition-[width] duration-300" style={{ width: `${v}%` }} />
+      <div
+        className="bg-primary h-full transition-[width] duration-300"
+        style={{ width: `${v}%` }}
+      />
     </div>
   )
 }

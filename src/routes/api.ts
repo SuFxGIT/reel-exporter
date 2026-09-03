@@ -324,12 +324,16 @@ export function createApi(deps: ApiDeps): Router {
   )
 
   // ---- Captures --------------------------------------------------------------
-  const screenshotSchema = z.object({ t: z.number().min(0) })
+  const screenshotSchema = z.object({
+    t: z.number().min(0),
+    format: z.enum(["png", "jpeg"]).default("png"),
+    maxWidth: z.number().int().min(160).max(7680).optional(),
+  })
   router.post(
     "/items/:id/screenshot",
     wrap(async (req, res) => {
       const id = req.params.id as string
-      const { t } = parseBody(screenshotSchema, req.body)
+      const { t, format, maxWidth } = parseBody(screenshotSchema, req.body)
       const { info, probe } = await loadPlayable(id)
       if (!probe.hasVideo)
         throw new ApiError(
@@ -343,18 +347,20 @@ export function createApi(deps: ApiDeps): Router {
           "That time is past the end of the file.",
           "bad_request"
         )
-      const shot = await takeScreenshot(info, probe, t)
-      res
-        .status(201)
-        .json({
-          file: shot.relPath,
-          name: shot.name,
-          width: shot.width,
-          height: shot.height,
-          size: shot.size,
-          t,
-          ...captureUrls(shot.relPath),
-        })
+      const shot = await takeScreenshot(info, probe, t, {
+        format,
+        ...(maxWidth ? { maxWidth } : {}),
+      })
+      res.status(201).json({
+        file: shot.relPath,
+        name: shot.name,
+        format: shot.format,
+        width: shot.width,
+        height: shot.height,
+        size: shot.size,
+        t,
+        ...captureUrls(shot.relPath),
+      })
     })
   )
 
@@ -362,6 +368,8 @@ export function createApi(deps: ApiDeps): Router {
     start: z.number().min(0),
     end: z.number().min(0),
     audio: z.number().int().min(-1).optional(),
+    quality: z.enum(["high", "balanced", "small"]).default("balanced"),
+    maxWidth: z.number().int().min(160).max(7680).optional(),
   })
   router.post(
     "/items/:id/clip",
@@ -391,7 +399,13 @@ export function createApi(deps: ApiDeps): Router {
           "That audio track does not exist.",
           "bad_request"
         )
-      const job = jobs.createClip(info, probe, { start, end, audio })
+      const job = jobs.createClip(info, probe, {
+        start,
+        end,
+        audio,
+        quality: body.quality,
+        ...(body.maxWidth ? { maxWidth: body.maxWidth } : {}),
+      })
       res.status(202).json({ jobId: job.id, job })
     })
   )
