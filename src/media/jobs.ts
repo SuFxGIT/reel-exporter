@@ -18,22 +18,51 @@ import {
   spawnFfmpeg,
   type RegisteredProcess,
 } from "./ffmpeg.js"
-import { fullResFilters, inputArgs, colorTagArgs } from "./filters.js"
+import {
+  GIF_PALETTE,
+  GIF_PALETTEUSE,
+  colorTagArgs,
+  fullResFilters,
+  gifFilters,
+  inputArgs,
+  shortsFilters,
+  type ShortsFit,
+} from "./filters.js"
 import type { ProbeResult } from "./probe.js"
+
+export type { ShortsFit } from "./filters.js"
 
 export type JobStatus = "queued" | "running" | "done" | "failed" | "cancelled"
 
 export type ClipQuality = "high" | "balanced" | "small"
 
-export interface ClipParams {
+export type ExportFormat = "mp4" | "shorts" | "gif"
+
+/** GIFs grow fast; keep them short. */
+export const GIF_MAX_SECONDS = 30
+
+interface ExportBase {
   start: number
   end: number
-  /** Audio stream index, or -1 for no audio. */
+  /** Audio stream index, or -1 for no audio. Always -1 for GIFs. */
   audio: number
   quality: ClipQuality
-  /** Downscale so the width is at most this many pixels; omit for source resolution. */
-  maxWidth?: number
 }
+
+export type ExportParams =
+  | (ExportBase & {
+      format: "mp4"
+      /** Downscale so the width is at most this many pixels; omit for source resolution. */
+      maxWidth?: number
+    })
+  | (ExportBase & { format: "shorts"; fit: ShortsFit })
+  | (ExportBase & { format: "gif"; fps: number; width: number })
+
+/** Kept as "clip" for MP4 so existing clients keep working. */
+export type JobType = "clip" | "shorts" | "gif"
+
+export const jobTypeFor = (format: ExportFormat): JobType =>
+  format === "mp4" ? "clip" : format
 
 const QUALITY: Record<ClipQuality, { crf: string; preset: string }> = {
   high: { crf: "18", preset: "medium" },
@@ -43,14 +72,14 @@ const QUALITY: Record<ClipQuality, { crf: string; preset: string }> = {
 
 export interface Job {
   id: string
-  type: "clip"
+  type: JobType
   itemId: string
   status: JobStatus
   progress: number
   createdAt: string
   startedAt?: string
   finishedAt?: string
-  params: ClipParams
+  params: ExportParams
   output?: {
     relPath: string
     name: string
@@ -73,6 +102,162 @@ interface Internal {
 
 const log = logger.child({ mod: "jobs" })
 const KEEP_MS = 60 * 60_000
+
+export const outputExt = (format: ExportFormat): "mp4" | "gif" =>
+  format === "gif" ? "gif" : "mp4"
+
+/** The palette written by the first GIF pass, next to the temp output. */
+export const palettePathFor = (tmp: string): string => `${tmp}.palette.png`
+
+/**
+ * Common input arguments. `-t` sits before `-i` so it limits how much of the
+ * source is read: as an output option it would only cap the file being written,
+ * and with a second input (the GIF palette) it would apply to that input instead.
+ */
+function head(absPath: string, probe: ProbeResult, params: ExportBase) {
+  return [
+    "-hide_banner",
+    "-nostdin",
+    "-loglevel",
+    "error",
+    "-nostats",
+    "-y",
+    "-progress",
+    "pipe:1",
+    "-stats_period",
+    "0.5",
+    "-threads",
+    "8",
+    ...inputArgs(probe),
+    "-ss",
+    params.start.toFixed(3),
+    "-t",
+    (params.end - params.start).toFixed(3),
+    "-i",
+    absPath,
+  ]
+}
+
+/** Exact output length, applied after every input has been declared. */
+const durationArgs = (params: ExportBase): string[] => [
+  "-t",
+  (params.end - params.start).toFixed(3),
+]
+
+function x264Args(probe: ProbeResult, quality: ClipQuality): string[] {
+  const q = QUALITY[quality] ?? QUALITY.balanced
+  return [
+    "-c:v",
+    "libx264",
+    "-preset",
+    q.preset,
+    "-crf",
+    q.crf,
+    "-profile:v",
+    "high",
+    "-pix_fmt",
+    "yuv420p",
+    "-threads:v",
+    "12",
+    ...colorTagArgs(probe),
+  ]
+}
+
+const AAC_ARGS = ["-c:a", "aac", "-ac", "2", "-ar", "48000", "-b:a", "192k"]
+const MP4_TAIL = ["-avoid_negative_ts", "make_zero", "-movflags", "+faststart"]
+
+/**
+ * ffmpeg arguments for one export pass. GIFs take two passes: the first writes
+ * a palette next to `tmp`, the second encodes with it.
+ */
+export function exportArgs(
+  absPath: string,
+  probe: ProbeResult,
+  params: ExportParams,
+  tmp: string,
+  pass: 1 | 2 = 1
+): string[] {
+  const args = head(absPath, probe, params)
+  const hasAudio =
+    params.format !== "gif" &&
+    params.audio >= 0 &&
+    params.audio < probe.audio.length
+  switch (params.format) {
+    case "gif": {
+      const chain = gifFilters(probe, { fps: params.fps, width: params.width })
+      if (pass === 1) {
+        args.push(
+          "-map",
+          "0:V:0",
+          "-an",
+          "-sn",
+          "-dn",
+          "-filter_threads",
+          "4",
+          "-vf",
+          `${chain},${GIF_PALETTE}`,
+          "-frames:v",
+          "1",
+          "-update",
+          "1",
+          "-f",
+          "image2",
+          palettePathFor(tmp)
+        )
+      } else {
+        args.push(
+          "-i",
+          palettePathFor(tmp),
+          "-filter_complex",
+          `[0:V:0]${chain}[x];[x][1:v]${GIF_PALETTEUSE}`,
+          ...durationArgs(params),
+          "-an",
+          "-sn",
+          "-dn",
+          "-map_metadata",
+          "-1",
+          "-loop",
+          "0",
+          "-f",
+          "gif",
+          tmp
+        )
+      }
+      return args
+    }
+    case "shorts": {
+      args.push("-map", "0:V:0")
+      if (hasAudio) args.push("-map", `0:a:${params.audio}`)
+      args.push("-sn", "-dn", "-map_metadata", "-1", "-map_chapters", "-1")
+      args.push(
+        "-filter_threads",
+        "4",
+        "-vf",
+        shortsFilters(probe, params.fit),
+        ...x264Args(probe, params.quality)
+      )
+      if (hasAudio) args.push(...AAC_ARGS)
+      args.push(...durationArgs(params), ...MP4_TAIL, "-f", "mp4", tmp)
+      return args
+    }
+    default: {
+      if (probe.hasVideo) args.push("-map", "0:V:0")
+      if (hasAudio) args.push("-map", `0:a:${params.audio}`)
+      args.push("-sn", "-dn", "-map_metadata", "-1", "-map_chapters", "-1")
+      if (probe.hasVideo)
+        args.push(
+          "-filter_threads",
+          "4",
+          "-vf",
+          fullResFilters(probe, "yuv420p", "field", params.maxWidth),
+          ...x264Args(probe, params.quality)
+        )
+      if (hasAudio) args.push(...AAC_ARGS)
+      args.push(...durationArgs(params), ...MP4_TAIL, "-f", "mp4", tmp)
+      return args
+    }
+  }
+}
 
 class JobManager {
   private readonly jobs = new Map<string, Internal>()
@@ -101,11 +286,15 @@ class JobManager {
     ).length
   }
 
-  createClip(info: PlayableInfo, probe: ProbeResult, params: ClipParams): Job {
+  createExport(
+    info: PlayableInfo,
+    probe: ProbeResult,
+    params: ExportParams
+  ): Job {
     const id = `job_${randomBytes(6).toString("base64url")}`
     const job: Job = {
       id,
-      type: "clip",
+      type: jobTypeFor(params.format),
       itemId: info.item.id,
       status: "queued",
       progress: 0,
@@ -121,7 +310,7 @@ class JobManager {
       cancelled: false,
     }
     this.jobs.set(id, internal)
-    void this.queue.add(() => this.runClip(internal))
+    void this.queue.add(() => this.runExport(internal))
     return job
   }
 
@@ -137,115 +326,80 @@ class JobManager {
     return true
   }
 
-  private async runClip(internal: Internal): Promise<void> {
+  /** Runs one ffmpeg pass, mapping its progress onto [from, to] of the job. */
+  private async runPass(
+    internal: Internal,
+    args: string[],
+    from: number,
+    to: number
+  ): Promise<{ code: number | null; stderr: string[] }> {
+    const { job } = internal
+    const duration = job.params.end - job.params.start
+    const entry = spawnFfmpeg(args, { kind: `export:${job.id}`, nice: 10 })
+    internal.entry = entry
+    const stderr: string[] = []
+    entry.proc.stdout?.on(
+      "data",
+      lineSplitter((line) => {
+        const p = parseProgressLine(line)
+        if (p?.key === "out_time_us") {
+          const us = Number(p.value)
+          if (Number.isFinite(us) && duration > 0) {
+            const frac = Math.min(1, us / (duration * 1e6))
+            job.progress = Math.min(
+              0.99,
+              Math.max(job.progress, from + (to - from) * frac)
+            )
+          }
+        }
+      })
+    )
+    entry.proc.stderr?.on(
+      "data",
+      lineSplitter((line) => {
+        if (line.trim()) stderr.push(line)
+        if (stderr.length > 30) stderr.shift()
+      })
+    )
+    const code = await exited(entry.proc)
+    internal.entry = null
+    return { code, stderr }
+  }
+
+  private async runExport(internal: Internal): Promise<void> {
     const { job, info, probe } = internal
     if (internal.cancelled) return
     job.status = "running"
     job.startedAt = new Date().toISOString()
-    const { start, end, audio, quality, maxWidth } = job.params
-    const duration = end - start
-    const q = QUALITY[quality] ?? QUALITY.balanced
-    const suffix = `${formatTimestampForName(start)} to ${formatTimestampForName(end)}`
+    const { params } = job
+    const duration = params.end - params.start
+    const ext = outputExt(params.format)
+    const range = `${formatTimestampForName(params.start)} to ${formatTimestampForName(params.end)}`
+    const suffix = params.format === "shorts" ? `${range} - Shorts` : range
     let target: CaptureTarget | null = null
+    let tmp: string | null = null
     try {
-      target = await allocateCapture(info, suffix, "mp4")
+      target = await allocateCapture(info, suffix, ext)
       internal.target = target
-      const tmp = `${target.absPath}.tmp.mp4`
-      const hasAudio = audio >= 0 && audio < probe.audio.length
-      const args = [
-        "-hide_banner",
-        "-nostdin",
-        "-loglevel",
-        "error",
-        "-nostats",
-        "-y",
-        "-progress",
-        "pipe:1",
-        "-stats_period",
-        "0.5",
-        "-threads",
-        "8",
-        ...inputArgs(probe),
-        "-ss",
-        start.toFixed(3),
-        "-i",
-        info.absPath,
-        "-t",
-        duration.toFixed(3),
-      ]
-      if (probe.hasVideo) args.push("-map", "0:V:0")
-      if (hasAudio) args.push("-map", `0:a:${audio}`)
-      args.push("-sn", "-dn", "-map_metadata", "-1", "-map_chapters", "-1")
-      if (probe.hasVideo) {
-        args.push(
-          "-filter_threads",
-          "4",
-          "-vf",
-          fullResFilters(probe, "yuv420p", "field", maxWidth),
-          "-c:v",
-          "libx264",
-          "-preset",
-          q.preset,
-          "-crf",
-          q.crf,
-          "-profile:v",
-          "high",
-          "-pix_fmt",
-          "yuv420p",
-          "-threads:v",
-          "12",
-          ...colorTagArgs(probe)
-        )
-      }
-      if (hasAudio)
-        args.push("-c:a", "aac", "-ac", "2", "-ar", "48000", "-b:a", "192k")
-      args.push(
-        "-avoid_negative_ts",
-        "make_zero",
-        "-movflags",
-        "+faststart",
-        "-f",
-        "mp4",
-        tmp
-      )
-
-      const entry = spawnFfmpeg(args, { kind: `clip:${job.id}`, nice: 10 })
-      internal.entry = entry
-      const stderr: string[] = []
-      entry.proc.stdout?.on(
-        "data",
-        lineSplitter((line) => {
-          const p = parseProgressLine(line)
-          if (p?.key === "out_time_us") {
-            const us = Number(p.value)
-            if (Number.isFinite(us) && duration > 0)
-              job.progress = Math.min(
-                0.99,
-                Math.max(job.progress, us / (duration * 1e6))
-              )
-          }
-        })
-      )
-      entry.proc.stderr?.on(
-        "data",
-        lineSplitter((line) => {
-          if (line.trim()) stderr.push(line)
-          if (stderr.length > 30) stderr.shift()
-        })
-      )
-      const code = await exited(entry.proc)
-      internal.entry = null
-      if (internal.cancelled) {
-        await fs.unlink(tmp).catch(() => undefined)
-        return
+      tmp = `${target.absPath}.tmp.${ext}`
+      const passes: Array<[string[], number, number]> =
+        params.format === "gif"
+          ? [
+              [exportArgs(info.absPath, probe, params, tmp, 1), 0, 0.5],
+              [exportArgs(info.absPath, probe, params, tmp, 2), 0.5, 0.99],
+            ]
+          : [[exportArgs(info.absPath, probe, params, tmp), 0, 0.99]]
+      for (const [args, from, to] of passes) {
+        const { code, stderr } = await this.runPass(internal, args, from, to)
+        if (internal.cancelled) return
+        if (code !== 0)
+          throw new Error(
+            `ffmpeg failed (exit ${code ?? "killed"}): ${stderr.slice(-3).join(" | ") || "no details"}`
+          )
       }
       const st = await fs.stat(tmp).catch(() => null)
-      if (code !== 0 || !st || st.size === 0) {
-        await fs.unlink(tmp).catch(() => undefined)
-        throw new Error(
-          `ffmpeg failed (exit ${code ?? "killed"}): ${stderr.slice(-3).join(" | ") || "no details"}`
-        )
-      }
+      if (!st || st.size === 0)
+        throw new Error("ffmpeg wrote an empty file. Check the container logs.")
       await fs.rename(tmp, target.absPath)
       job.progress = 1
       job.status = "done"
@@ -258,20 +412,28 @@ class JobManager {
       log.info(
         {
           job: job.id,
+          type: job.type,
           file: target.relPath,
           seconds: duration,
           ms: Date.now() - Date.parse(job.startedAt),
         },
-        "clip saved"
+        "export saved"
       )
     } catch (err) {
       if (!internal.cancelled) {
         job.status = "failed"
         job.error = (err as Error).message
-        log.warn({ job: job.id, err: job.error }, "clip failed")
+        log.warn(
+          { job: job.id, type: job.type, err: job.error },
+          "export failed"
+        )
       }
     } finally {
       job.finishedAt = new Date().toISOString()
+      if (tmp) {
+        if (job.status !== "done") await fs.unlink(tmp).catch(() => undefined)
+        await fs.unlink(palettePathFor(tmp)).catch(() => undefined)
+      }
       if (target) releaseCapture(target)
     }
   }

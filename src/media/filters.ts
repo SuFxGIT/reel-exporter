@@ -68,13 +68,12 @@ export function previewFilters(probe: ProbeResult): string {
   return parts.join(",")
 }
 
-/** Full-resolution output (screenshots, clips). */
-export function fullResFilters(
+/** Everything before the final pixel-format step: fixup, deinterlace, downscale, tone-map. */
+function prepFilters(
   probe: ProbeResult,
-  pixelFormat: "yuv420p" | "rgb24" | "yuvj420p",
   deinterlaceMode: "frame" | "field",
   maxWidth?: number
-): string {
+): string[] {
   const parts: string[] = []
   const fix = colorFixup(probe)
   if (fix) parts.push(fix)
@@ -95,9 +94,101 @@ export function fullResFilters(
   }
   const tm = tonemapChain(probe)
   if (tm) parts.push(tm)
-  parts.push(`format=${pixelFormat}`)
+  return parts
+}
+
+/** Full-resolution output (screenshots, clips). */
+export function fullResFilters(
+  probe: ProbeResult,
+  pixelFormat: "yuv420p" | "rgb24" | "yuvj420p" | "bgra",
+  deinterlaceMode: "frame" | "field",
+  maxWidth?: number
+): string {
+  return [
+    ...prepFilters(probe, deinterlaceMode, maxWidth),
+    `format=${pixelFormat}`,
+  ].join(",")
+}
+
+// ---------------------------------------------------------------------------
+// Vertical (Shorts) output: 1080x1920
+// ---------------------------------------------------------------------------
+
+export type ShortsFit = "blur" | "crop" | "bars"
+export const SHORTS_WIDTH = 1080
+export const SHORTS_HEIGHT = 1920
+
+/**
+ * Width to downscale to before tone-mapping so the expensive filters run at
+ * the size the vertical frame needs rather than at source size.
+ */
+export function shortsPrescaleWidth(
+  probe: ProbeResult,
+  fit: ShortsFit
+): number | undefined {
+  const v = probe.video
+  if (!v || !v.height) return undefined
+  const atHeight = Math.round((SHORTS_HEIGHT * v.displayWidth) / v.height)
+  const box =
+    fit === "bars"
+      ? Math.min(SHORTS_WIDTH, atHeight)
+      : Math.max(SHORTS_WIDTH, atHeight)
+  return box < v.displayWidth ? box : undefined
+}
+
+const W = SHORTS_WIDTH
+const H = SHORTS_HEIGHT
+const SHORTS_FIT: Record<ShortsFit, string> = {
+  // Blur a small copy and scale it back up: same look, a fraction of the cost.
+  blur: [
+    "split[bg][fg]",
+    `[bg]scale=w=${W / 4}:h=${H / 4}:force_original_aspect_ratio=increase:flags=bicubic,crop=w=${W / 4}:h=${H / 4},gblur=sigma=8,scale=w=${W}:h=${H}:flags=bicubic[bgb]`,
+    `[fg]scale=w=${W}:h=${H}:force_original_aspect_ratio=decrease:force_divisible_by=2:flags=lanczos[fgs]`,
+    "[bgb][fgs]overlay=x=(W-w)/2:y=(H-h)/2:format=yuv420,format=yuv420p",
+  ].join(";"),
+  crop: `scale=w=${W}:h=${H}:force_original_aspect_ratio=increase:flags=lanczos,crop=w=${W}:h=${H}`,
+  bars: `scale=w=${W}:h=${H}:force_original_aspect_ratio=decrease:force_divisible_by=2:flags=lanczos,pad=w=${W}:h=${H}:x=(ow-iw)/2:y=(oh-ih)/2:color=black`,
+}
+
+/** 9:16 output for Shorts and Reels: fit the picture, then fill the frame. */
+export function shortsFilters(probe: ProbeResult, fit: ShortsFit): string {
+  return [
+    ...prepFilters(probe, "field", shortsPrescaleWidth(probe, fit)),
+    "format=yuv420p",
+    SHORTS_FIT[fit],
+  ].join(",")
+}
+
+// ---------------------------------------------------------------------------
+// GIF
+// ---------------------------------------------------------------------------
+
+/**
+ * Frame-rate reduction and downscale for a GIF; shared by the palette pass and
+ * the encode pass. The scale is always present so the colour fixup applies.
+ */
+export function gifFilters(
+  probe: ProbeResult,
+  opts: { fps: number; width: number }
+): string {
+  const parts: string[] = []
+  const fix = colorFixup(probe)
+  if (fix) parts.push(fix)
+  const de = deinterlaceFilter(probe)
+  if (de) parts.push(de)
+  parts.push(
+    `fps=${opts.fps}`,
+    `scale=w='min(${opts.width},iw*sar)':h=-2:flags=lanczos`,
+    "setsar=1"
+  )
+  const tm = tonemapChain(probe)
+  if (tm) parts.push(tm)
   return parts.join(",")
 }
+
+export const GIF_PALETTE = "palettegen=stats_mode=full"
+export const GIF_PALETTEUSE =
+  "paletteuse=dither=bayer:bayer_scale=5:diff_mode=rectangle"
 
 /** Small preview frame (hover thumbnails, capture thumbnails). */
 export function thumbnailFilters(probe: ProbeResult, width: number): string {

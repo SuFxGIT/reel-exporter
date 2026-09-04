@@ -154,7 +154,7 @@ export type PeaksResponse =
 export interface Capture {
   name: string
   relPath: string
-  kind: "screenshot" | "clip"
+  kind: "screenshot" | "clip" | "gif"
   /** Set for numbered screenshots (1.png, 2.jpg, ...). */
   number?: number
   size: number
@@ -166,17 +166,21 @@ export interface Capture {
 
 export interface Job {
   id: string
-  type: "clip"
+  type: "clip" | "shorts" | "gif"
   itemId: string
   status: "queued" | "running" | "done" | "failed" | "cancelled"
   progress: number
   createdAt: string
   params: {
+    format: "mp4" | "shorts" | "gif"
     start: number
     end: number
     audio: number
     quality: "high" | "balanced" | "small"
     maxWidth?: number
+    fit?: "blur" | "crop" | "bars"
+    fps?: number
+    width?: number
   }
   output?: {
     relPath: string
@@ -197,7 +201,7 @@ export interface CapturesResponse {
 export interface ScreenshotResponse {
   file: string
   name: string
-  format: "png" | "jpeg"
+  format: "png" | "jpeg" | "webp"
   width: number
   height: number
   size: number
@@ -262,7 +266,11 @@ export const api = {
   screenshot: (
     id: string,
     t: number,
-    opts: { format: "png" | "jpeg"; maxWidth?: number }
+    opts: {
+      format: "png" | "jpeg" | "webp"
+      maxWidth?: number
+      quality?: number
+    }
   ) =>
     request<ScreenshotResponse>(`/api/items/${id}/screenshot`, {
       method: "POST",
@@ -274,7 +282,14 @@ export const api = {
     start: number,
     end: number,
     audio: number,
-    opts: { quality: "high" | "balanced" | "small"; maxWidth?: number }
+    opts: {
+      format: "mp4" | "shorts" | "gif"
+      quality?: "high" | "balanced" | "small"
+      maxWidth?: number
+      fit?: "blur" | "crop" | "bars"
+      fps?: number
+      width?: number
+    }
   ) =>
     request<{ jobId: string; job: Job }>(`/api/items/${id}/clip`, {
       method: "POST",
@@ -331,3 +346,10 @@ export const hlsUrl = (id: string, audio: number): string =>
   `/api/items/${id}/hls/a${audio}/index.m3u8`
 export const frameUrl = (id: string, t: number, width = 320): string =>
   `/api/items/${id}/frame?t=${(Math.round(t * 2) / 2).toFixed(1)}&w=${width}`
+
+/** Human label per export type, for toasts and the captures strip. */
+export const exportLabel: Record<Job["type"], string> = {
+  clip: "Clip",
+  shorts: "Shorts",
+  gif: "GIF",
+}

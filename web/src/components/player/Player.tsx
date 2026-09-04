@@ -6,8 +6,12 @@ import { usePlaybackClock } from "@/hooks/usePlaybackClock"
 import { useSelection, type Selection } from "@/hooks/useSelection"
 import { useShortcuts } from "@/hooks/useShortcuts"
 import { useTimeline, type ZoomState } from "@/hooks/useTimeline"
-import { api, hlsUrl, type ItemDetail } from "@/lib/api"
-import { maxWidthFor, useExportOptions } from "@/lib/export-options"
+import { api, hlsUrl, type ItemDetail, exportLabel } from "@/lib/api"
+import {
+  GIF_MAX_SECONDS,
+  maxWidthFor,
+  useExportOptions,
+} from "@/lib/export-options"
 import { stepFrames } from "@/lib/frame-step"
 import { decodePeaks, useInvalidate, useJob, usePeaks } from "@/lib/queries"
 import { CapturesStrip } from "@/components/captures/CapturesStrip"
@@ -106,7 +110,7 @@ export function Player({ item, onToggleSidebar, onClose }: Props) {
     if (!job.data) return
     if (jobStatus === "done" && job.data.output) {
       const out = job.data.output
-      toast.success("Clip saved", {
+      toast.success(`${exportLabel[job.data.type]} saved`, {
         description: out.name,
         action: {
           label: "Open",
@@ -116,7 +120,7 @@ export function Player({ item, onToggleSidebar, onClose }: Props) {
       void invalidate.captures(item.id)
       setJobId(null)
     } else if (jobStatus === "failed") {
-      toast.error("Clip export failed", {
+      toast.error(`${exportLabel[job.data.type]} export failed`, {
         description: job.data.error ?? "Check the container logs.",
       })
       setJobId(null)
@@ -158,6 +162,7 @@ export function Player({ item, onToggleSidebar, onClose }: Props) {
           .screenshot(item.id, t, {
             format: shotOpts.format,
             maxWidth: maxWidthFor(shotOpts.size, shotOpts.customWidth),
+            ...(shotOpts.format !== "png" ? { quality: shotOpts.quality } : {}),
           })
           .then((res) => {
             toast.success("Screenshot saved", {
@@ -176,21 +181,40 @@ export function Player({ item, onToggleSidebar, onClose }: Props) {
       },
       exportClip: () => {
         if (!selection || exporting) return
+        const length = selection.end - selection.start
+        if (clipOpts.format === "gif" && length > GIF_MAX_SECONDS) {
+          toast.error(`GIFs are limited to ${GIF_MAX_SECONDS} seconds`, {
+            description: "Pick a shorter range or export an MP4.",
+          })
+          return
+        }
+        const opts =
+          clipOpts.format === "gif"
+            ? {
+                format: "gif" as const,
+                fps: clipOpts.gifFps,
+                width: clipOpts.gifWidth,
+              }
+            : clipOpts.format === "shorts"
+              ? { format: "shorts" as const, fit: clipOpts.fit }
+              : {
+                  format: "mp4" as const,
+                  quality: clipOpts.quality,
+                  maxWidth: maxWidthFor(clipOpts.size),
+                }
+        const wantsAudio = clipOpts.format !== "gif" && clipOpts.audio
         api
           .clip(
             item.id,
             selection.start,
             selection.end,
-            clipOpts.audio ? audio : -1,
-            {
-              quality: clipOpts.quality,
-              maxWidth: maxWidthFor(clipOpts.size),
-            }
+            wantsAudio ? audio : -1,
+            opts
           )
           .then((res) => {
             setJobId(res.jobId)
-            toast("Exporting clip", {
-              description: `${(selection.end - selection.start).toFixed(1)} s from the original file`,
+            toast(`Exporting ${exportLabel[res.job.type].toLowerCase()}`, {
+              description: `${length.toFixed(1)} s from the original file`,
             })
             void invalidate.captures(item.id)
           })

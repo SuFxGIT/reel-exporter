@@ -264,3 +264,14 @@ describe("renumberPlan", () => {
     ])
   })
 })
+
+describe("numbered WebP screenshots", () => {
+  it("are recognised, counted and renumbered like PNG and JPEG", () => {
+    expect(parseCaptureNumber("3.webp")).toBe(3)
+    expect(parseCaptureNumber("3.WEBP")).toBe(3)
+    expect(nextCaptureNumber(["1.png", "2.webp"])).toBe(3)
+    expect(renumberPlan(["1.png", "3.webp"])).toEqual([
+      { from: "3.webp", to: "2.webp" },
+    ])
+  })
+})

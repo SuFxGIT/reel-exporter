@@ -13,6 +13,7 @@ import { logger } from "../logger.js"
 import { exists } from "../util/async.js"
 import { toUrlPath } from "../util/paths.js"
 import { lastLines, runFfmpeg, runFfprobe } from "./ffmpeg.js"
+import { screenshotEncoder, type ScreenshotFormat } from "./encoders.js"
 import { fullResFilters, inputArgs } from "./filters.js"
 import type { ProbeResult } from "./probe.js"
 
@@ -210,12 +211,14 @@ export function releaseCapture(target: CaptureTarget): void {
   reserved.delete(target.absPath)
 }
 
-export type ScreenshotFormat = "png" | "jpeg"
+export type { ScreenshotFormat } from "./encoders.js"
 
 export interface ScreenshotOptions {
   format: ScreenshotFormat
   /** Downscale so the width is at most this many pixels; omit for source resolution. */
   maxWidth?: number
+  /** 50..100 for JPEG and WebP (100 is lossless WebP); ignored for PNG. */
+  quality?: number
 }
 
 export interface ScreenshotResult {
@@ -258,14 +261,11 @@ export function takeScreenshot(
   return screenshotQueue.add(async () => {
     if (!probe.hasVideo || !probe.video)
       throw new Error("This file has no video stream to capture.")
-    const ext = opts.format === "jpeg" ? "jpg" : "png"
+    const enc = screenshotEncoder(opts.format, opts.quality)
+    const ext = enc.ext
     const target = await allocateScreenshot(info, ext)
     const tmp = `${target.absPath}.tmp.${ext}`
     try {
-      const encoder =
-        opts.format === "jpeg"
-          ? ["-c:v", "mjpeg", "-q:v", "2", "-huffman", "optimal"]
-          : ["-c:v", "png", "-compression_level", "6"]
       const args = [
         "-hide_banner",
         "-nostdin",
@@ -286,13 +286,8 @@ export function takeScreenshot(
         "-filter_threads",
         "4",
         "-vf",
-        fullResFilters(
-          probe,
-          opts.format === "jpeg" ? "yuvj420p" : "rgb24",
-          "frame",
-          opts.maxWidth
-        ),
-        ...encoder,
+        fullResFilters(probe, enc.pixelFormat, "frame", opts.maxWidth),
+        ...enc.args,
         "-update",
         "1",
         "-f",
@@ -317,7 +312,13 @@ export function takeScreenshot(
       }
       await fs.rename(tmp, target.absPath)
       logger.info(
-        { file: target.relPath, t, format: opts.format, ...dims },
+        {
+          file: target.relPath,
+          t,
+          format: opts.format,
+          quality: opts.quality,
+          ...dims,
+        },
         "screenshot saved"
       )
       return {

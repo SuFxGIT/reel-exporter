@@ -309,7 +309,7 @@ export function formatTimestampForName(seconds: number): string {
 
 /** "12.png" -> 12; null for anything that is not a numbered screenshot. */
 export function parseCaptureNumber(name: string): number | null {
-  const m = /^(\d{1,9})\.(?:png|jpe?g)$/i.exec(name)
+  const m = /^(\d{1,9})\.(?:png|jpe?g|webp)$/i.exec(name)
   return m ? Number(m[1]) : null
 }
 

@@ -37,7 +37,7 @@ import {
 import type { FfmpegCapabilities } from "../media/ffmpeg.js"
 import { renderCaptureThumb, renderFrame } from "../media/frames.js"
 import { HlsError, hlsSessions } from "../media/hls.js"
-import { jobs } from "../media/jobs.js"
+import { jobs, GIF_MAX_SECONDS, type ExportParams } from "../media/jobs.js"
 import { getPeaks } from "../media/peaks.js"
 import { probeFile, type ProbeResult } from "../media/probe.js"
 import { TimeoutError, isWritableDir, withTimeout } from "../util/async.js"
@@ -72,7 +72,13 @@ export interface ApiDeps {
 const BROWSE_MAX_FOLDERS = 2000
 const BROWSE_COUNT_LIMIT = 300
 
-const CAPTURE_EXT = new Set([".png", ".jpg", ".jpeg", ".mp4"])
+const CAPTURE_EXT = new Set([".png", ".jpg", ".jpeg", ".webp", ".mp4", ".gif"])
+
+type CaptureKind = "screenshot" | "clip" | "gif"
+const captureKind = (name: string): CaptureKind => {
+  const ext = path.extname(name).toLowerCase()
+  return ext === ".mp4" ? "clip" : ext === ".gif" ? "gif" : "screenshot"
+}
 
 type Handler = (
   req: Request,
@@ -236,6 +242,8 @@ export function createApi(deps: ApiDeps): Router {
             bwdif: caps.bwdif,
             libx264: caps.libx264,
             aac: caps.aac,
+            libwebp: caps.libwebp,
+            gif: caps.gif,
           },
         },
         library: {
@@ -627,14 +635,24 @@ export function createApi(deps: ApiDeps): Router {
   // ---- Captures --------------------------------------------------------------
   const screenshotSchema = z.object({
     t: z.number().min(0),
-    format: z.enum(["png", "jpeg"]).default("png"),
+    format: z.enum(["png", "jpeg", "webp"]).default("png"),
     maxWidth: z.number().int().min(160).max(7680).optional(),
+    quality: z.number().int().min(50).max(100).default(90),
   })
   router.post(
     "/items/:id/screenshot",
     wrap(async (req, res) => {
       const id = req.params.id as string
-      const { t, format, maxWidth } = parseBody(screenshotSchema, req.body)
+      const { t, format, maxWidth, quality } = parseBody(
+        screenshotSchema,
+        req.body
+      )
+      if (format === "webp" && !caps.libwebp)
+        throw new ApiError(
+          503,
+          "This ffmpeg build cannot write WebP. Choose PNG or JPEG.",
+          "unsupported"
+        )
       const { info, probe } = await loadPlayable(id)
       if (!probe.hasVideo)
         throw new ApiError(
@@ -651,6 +669,7 @@ export function createApi(deps: ApiDeps): Router {
       const shot = await takeScreenshot(info, probe, t, {
         format,
         ...(maxWidth ? { maxWidth } : {}),
+        ...(format !== "png" ? { quality } : {}),
       })
       res.status(201).json({
         file: shot.relPath,
@@ -671,6 +690,12 @@ export function createApi(deps: ApiDeps): Router {
     audio: z.number().int().min(-1).optional(),
     quality: z.enum(["high", "balanced", "small"]).default("balanced"),
     maxWidth: z.number().int().min(160).max(7680).optional(),
+    format: z.enum(["mp4", "shorts", "gif"]).default("mp4"),
+    /** Shorts only: how a widescreen picture fills the 9:16 frame. */
+    fit: z.enum(["blur", "crop", "bars"]).default("blur"),
+    /** GIF only. */
+    fps: z.number().int().min(5).max(30).default(15),
+    width: z.number().int().min(160).max(1280).default(480),
   })
   router.post(
     "/items/:id/clip",
@@ -686,6 +711,12 @@ export function createApi(deps: ApiDeps): Router {
           "Set an out point at least 0.1 seconds after the in point.",
           "bad_request"
         )
+      if (body.format === "gif" && end - start > GIF_MAX_SECONDS)
+        throw new ApiError(
+          400,
+          `GIFs are limited to ${GIF_MAX_SECONDS} seconds. Pick a shorter range.`,
+          "bad_request"
+        )
       if (end - start > config.clipMaxSeconds) {
         throw new ApiError(
           400,
@@ -693,20 +724,38 @@ export function createApi(deps: ApiDeps): Router {
           "bad_request"
         )
       }
-      const audio = body.audio ?? probe.defaultAudio
+      if (body.format !== "mp4" && !probe.hasVideo)
+        throw new ApiError(
+          422,
+          "This file has no video stream to export.",
+          "no_video"
+        )
+      if (body.format === "gif" && !caps.gif)
+        throw new ApiError(
+          503,
+          "This ffmpeg build cannot write GIF. Export an MP4 instead.",
+          "unsupported"
+        )
+      const audio =
+        body.format === "gif" ? -1 : (body.audio ?? probe.defaultAudio)
       if (audio >= probe.audio.length)
         throw new ApiError(
           400,
           "That audio track does not exist.",
           "bad_request"
         )
-      const job = jobs.createClip(info, probe, {
-        start,
-        end,
-        audio,
-        quality: body.quality,
-        ...(body.maxWidth ? { maxWidth: body.maxWidth } : {}),
-      })
+      const common = { start, end, audio, quality: body.quality }
+      const params: ExportParams =
+        body.format === "gif"
+          ? { ...common, format: "gif", fps: body.fps, width: body.width }
+          : body.format === "shorts"
+            ? { ...common, format: "shorts", fit: body.fit }
+            : {
+                ...common,
+                format: "mp4",
+                ...(body.maxWidth ? { maxWidth: body.maxWidth } : {}),
+              }
+      const job = jobs.createExport(info, probe, params)
       res.status(202).json({ jobId: job.id, job })
     })
   )
@@ -753,10 +802,7 @@ export function createApi(deps: ApiDeps): Router {
           return {
             name: c.name,
             relPath,
-            kind:
-              path.extname(c.name).toLowerCase() === ".mp4"
-                ? ("clip" as const)
-                : ("screenshot" as const),
+            kind: captureKind(c.name),
             ...(number !== null ? { number } : {}),
             size: st.size,
             mtime: st.mtime.toISOString(),

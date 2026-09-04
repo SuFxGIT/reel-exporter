@@ -248,6 +248,8 @@ export interface FfmpegCapabilities {
   bwdif: boolean
   libx264: boolean
   aac: boolean
+  libwebp: boolean
+  gif: boolean
 }
 
 export async function detectCapabilities(): Promise<FfmpegCapabilities> {
@@ -283,5 +285,8 @@ export async function detectCapabilities(): Promise<FfmpegCapabilities> {
     bwdif: hasFilter("bwdif"),
     libx264: hasEncoder("libx264"),
     aac: hasEncoder("aac"),
+    libwebp: hasEncoder("libwebp"),
+    gif:
+      hasEncoder("gif") && hasFilter("palettegen") && hasFilter("paletteuse"),
   }
 }

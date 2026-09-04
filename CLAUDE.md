@@ -42,11 +42,13 @@ There is no ffmpeg on the host; anything that touches media runs in a container.
   `use_editlist=0`), restart-on-seek, SIGSTOP throttling, idle cleanup. Do not change the
   ffmpeg flags without re-running the timestamp checks in the README's development notes.
 - `src/media/filters.ts` builds the filter chains (deinterlace, scale, zscale+tonemap for
-  HDR). `probe.ts` classifies HDR (pq, hlg, dovi-p5, unknown-hdr) from ffprobe JSON.
-- `src/media/capture.ts` (screenshots: PNG/JPEG, optional max width), `jobs.ts` (clip queue:
-  quality presets, optional max width, audio or none), `peaks.ts` (waveform),
-  `frames.ts` (hover and capture thumbnails). All child processes go through
-  `ffmpeg.ts`'s `ProcessRegistry`.
+  HDR, `shortsFilters` for the 1080x1920 blur/crop/bars fits, `gifFilters` for fps and
+  width). `probe.ts` classifies HDR (pq, hlg, dovi-p5, unknown-hdr) from ffprobe JSON.
+- `src/media/capture.ts` (screenshots: PNG/JPEG/WebP with `encoders.ts` mapping quality to
+  encoder args, optional max width, numbered names), `jobs.ts` (export queue: MP4 with
+  quality presets, vertical Shorts MP4, two-pass GIF with a per-clip palette; `exportArgs`
+  is pure and unit-tested), `peaks.ts` (waveform), `frames.ts` (hover and capture
+  thumbnails). All child processes go through `ffmpeg.ts`'s `ProcessRegistry`.
 - `web/src/lib/export-options.ts` holds the per-browser export choices; the popovers live in
   `web/src/components/player/ExportOptions.tsx`.
 - `web/src/components/sources/SourcesDialog.tsx` (+ `FolderBrowser.tsx`, `web/src/lib/sources.ts`)

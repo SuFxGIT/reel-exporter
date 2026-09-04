@@ -14,7 +14,7 @@ const rows: Array<[string, string]> = [
   ["I O", "Set in or out point"],
   ["Backspace", "Clear selection"],
   ["S", "Save screenshot"],
-  ["E", "Export clip"],
+  ["E", "Export the selection (MP4, Shorts or GIF)"],
   ["+ - 0", "Zoom in, out, fit"],
   ["Ctrl + wheel", "Zoom at pointer"],
   ["Wheel", "Scroll timeline"],

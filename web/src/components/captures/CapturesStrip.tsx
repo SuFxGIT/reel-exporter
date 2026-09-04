@@ -4,11 +4,12 @@ import {
   Film,
   Image as ImageIcon,
   Loader2,
+  Repeat,
   Trash2,
   X,
 } from "lucide-react"
 import { toast } from "sonner"
-import { api, type Capture, type Job } from "@/lib/api"
+import { api, exportLabel, type Capture, type Job } from "@/lib/api"
 import { useCaptures, useInvalidate } from "@/lib/queries"
 import { formatBytes, formatTime } from "@/lib/time"
 import { cn } from "@/lib/utils"
@@ -95,7 +96,7 @@ export function CapturesStrip({ itemId, activeJob }: Props) {
       <div className="text-muted-foreground flex h-[76px] shrink-0 items-center px-3 text-xs">
         {captures.isLoading
           ? "Loading captures"
-          : "Screenshots and clips you save for this title appear here."}
+          : "Screenshots, clips and GIFs you save for this title appear here."}
       </div>
     )
   }
@@ -110,7 +111,11 @@ export function CapturesStrip({ itemId, activeJob }: Props) {
           <div className="flex items-center justify-between gap-1">
             <span className="flex items-center gap-1 truncate">
               <Loader2 className="text-primary size-3 animate-spin" />
-              {job.status === "queued" ? "Queued" : "Exporting"}
+              {job.status === "queued"
+                ? "Queued"
+                : job.type === "clip"
+                  ? "Exporting"
+                  : `Exporting ${exportLabel[job.type]}`}
               <span className="tnum text-muted-foreground">
                 {formatTime(job.params.start, false)}–
                 {formatTime(job.params.end, false)}
@@ -248,6 +253,8 @@ function CaptureTile({
           capture.number
         ) : capture.kind === "clip" ? (
           <Film className="size-3" />
+        ) : capture.kind === "gif" ? (
+          <Repeat className="size-3" />
         ) : (
           <ImageIcon className="size-3" />
         )}

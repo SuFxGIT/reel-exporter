@@ -13,8 +13,8 @@ Reel Vault points at a read-only media share, shows your movies and shows in a c
 ## Features
 
 - **Plays everything.** MKV, MP4, AVI, TS and friends with H.264, HEVC, AV1, 10-bit and HDR video and AC3, DTS, TrueHD or AAC audio all stream as an on-the-fly HLS preview (H.264 and AAC, up to 1080p). Seeking anywhere in a 60 GB remux starts within a couple of seconds.
-- **Frame-accurate screenshots** as PNG or JPEG at the source resolution or scaled to 1080p, 720p or any width. HDR10, HLG and Dolby Vision (profiles 7 and 8) are tone-mapped to SDR so grabs look right.
-- **Clip trimming.** Set in and out points on the timeline, then export an MP4 (H.264 and AAC) cut precisely from the original, at source resolution or 1080p/720p, in three quality levels, with or without audio, with progress and cancel.
+- **Frame-accurate screenshots** as PNG, JPEG or WebP (with a quality slider for the lossy formats) at the source resolution or scaled to 1080p, 720p or any width. HDR10, HLG and Dolby Vision (profiles 7 and 8) are tone-mapped to SDR so grabs look right.
+- **Clip trimming.** Set in and out points on the timeline, then export the range cut precisely from the original: an MP4 (H.264 and AAC) at source resolution or 1080p/720p in three quality levels, a vertical 1080×1920 **Shorts** MP4 with a blurred, cropped or letterboxed fit, or a **GIF** up to 30 seconds. All with progress and cancel.
 - **A timeline built for precision.** Waveform, ruler, minimap, drag-to-select, draggable in and out handles, zoom at the pointer with Ctrl and the mouse wheel, frame stepping, and hover thumbnails.
 - **Your folders, your libraries.** Mount one or more media shares read-only, browse them in the app and tick exactly which folders become libraries (a whole `movies 4k` share or a single sub-folder). Unticked folders are never scanned. Search, lazy-loaded seasons and episodes, and periodic rescans included.
 
@@ -71,7 +71,7 @@ The same operations are available over the API: `GET /api/sources`, `POST /api/s
 |---|---|---|
 | `/media` | read-only | Your main media share. Pick the folders to import under Media sources. Never written to. |
 | `/media2`, `/media3`, ... | read-only | Optional extra shares. Any container path works; add it under Media sources. |
-| `/output` | read-write | Screenshots (numbered PNG or JPEG) and clips (MP4), one folder per movie or show. |
+| `/output` | read-write | Screenshots (numbered PNG, JPEG or WebP), clips (MP4) and GIFs, one folder per movie or show. |
 | `/config` | read-write | Library index, probe and waveform caches, and the temporary transcode segments. Safe to delete. |
 
 | Variable | Default | Purpose |
@@ -89,7 +89,7 @@ The same operations are available over the API: `GET /api/sources`, `POST /api/s
 - **Library.** Only the folders you ticked are walked (a 1,500 movie folder takes a couple of seconds) and the result is cached in `/config/library.json`, so restarts are instant. Movies and shows are recognised from their folder structure, not from the library name: `Show (2022)/Season 01/Show - S01E01 - Title.mkv` is a show, `Movie (1999)/Movie (1999).mkv` is a movie. Episode names like `S01E01`, `S01E01-E02`, `21x1088`, `Ep14` and bare numbers inside a season folder all work.
 - **Preview.** The server runs ffmpeg per title, producing a 4 second fragmented-MP4 HLS stream (H.264 and AAC, at most 1080p) that hls.js feeds to the browser. Seeking outside the buffered range restarts ffmpeg at that exact segment, so any codec plays and only the part you watch is transcoded. Idle transcodes stop after a minute.
 - **Captures use the original file.** A screenshot decodes the exact frame at the timestamp and writes it at source resolution unless you asked for a smaller size. A clip re-encodes the selected range from the source into an MP4 that plays anywhere. HDR sources go through `zscale` and `tonemap` to BT.709 for both, and any downscale happens before tone-mapping.
-- **Output layout.** Screenshots are numbered: `/output/<Title (Year)>/1.png`, `2.jpg`, ... for movies and `/output/<Show (Year)>/S01E02/1.png` for episodes; deleting one renumbers the rest so they always run 1 to n. Clips keep their time range: `/output/<Title (Year)>/<Title (Year)> - <in> to <out>.mp4` (episodes add ` - S01E02`). Unicode titles are kept as they are. The strip under the timeline shows the numbered screenshots in order, then clips; drag a screenshot to change its position and the files are renumbered to match (the leftmost is 1). Each tile has download and delete buttons.
+- **Output layout.** Screenshots are numbered: `/output/<Title (Year)>/1.png`, `2.jpg`, ... for movies and `/output/<Show (Year)>/S01E02/1.png` for episodes; deleting one renumbers the rest so they always run 1 to n. Clips keep their time range: `/output/<Title (Year)>/<Title (Year)> - <in> to <out>.mp4` (episodes add ` - S01E02`); Shorts add ` - Shorts` and GIFs use the same name with `.gif`. Unicode titles are kept as they are. The strip under the timeline shows the numbered screenshots in order, then clips; drag a screenshot to change its position and the files are renumbered to match (the leftmost is 1). Each tile has download and delete buttons.
 
 ## Export options
 
@@ -97,16 +97,20 @@ The small arrow next to **Screenshot** and **Export** opens the options for that
 
 | Screenshot | Choices |
 |---|---|
-| Format | PNG (lossless) or JPEG (quality 92) |
+| Format | PNG (lossless), JPEG or WebP |
+| Quality | 50 to 100 for JPEG and WebP (default 90); WebP at 100 is lossless |
 | Size | Source, 1080p, 720p, or a custom maximum width |
 
-| Clip | Choices |
+| Export | Choices |
 |---|---|
-| Size | Source, 1080p or 720p |
-| Quality | High (CRF 18), Balanced (CRF 20) or Small (CRF 24, faster) |
-| Audio | The track selected in the header, or none |
+| Format | MP4, Shorts (vertical 1080×1920 MP4) or GIF |
+| Size (MP4) | Source, 1080p or 720p |
+| Quality (MP4) | High (CRF 18), Balanced (CRF 20) or Small (CRF 24, faster) |
+| Fit (Shorts) | Blur (picture centred over a blurred copy), Crop (fill the frame) or Bars (black letterbox) |
+| Width and frame rate (GIF) | 320, 480 or 640 px wide at 10, 15 or 20 fps; GIFs are limited to 30 seconds |
+| Audio (MP4, Shorts) | The track selected in the header, or none |
 
-Sizes are width limits that keep the source aspect ratio, so a 2.39:1 film at "1080p" comes out 1920×804. The API accepts the same fields: `POST /api/items/:id/screenshot {"t":600,"format":"jpeg","maxWidth":1920}` and `POST /api/items/:id/clip {"start":60,"end":70,"quality":"small","maxWidth":1280,"audio":-1}`.
+Sizes are width limits that keep the source aspect ratio, so a 2.39:1 film at "1080p" comes out 1920×804. GIFs use a palette built from the clip itself. The API accepts the same fields: `POST /api/items/:id/screenshot {"t":600,"format":"webp","quality":80,"maxWidth":1920}`, `POST /api/items/:id/clip {"start":60,"end":70,"quality":"small","maxWidth":1280,"audio":-1}`, `{"start":60,"end":70,"format":"shorts","fit":"blur"}` and `{"start":60,"end":65,"format":"gif","fps":15,"width":480}`.
 
 ## Keyboard shortcuts
 
@@ -119,7 +123,7 @@ Sizes are width limits that keep the source aspect ratio, so a 2.39:1 film at "1
 | `I` `O` | Set the in or out point at the playhead |
 | `Backspace` | Clear the selection |
 | `S` | Save a screenshot of the current frame |
-| `E` | Export the selection as a clip |
+| `E` | Export the selection with the chosen format (MP4, Shorts or GIF) |
 | `+` `-` `0` | Zoom the timeline in, out, or to fit |
 | `Ctrl` + wheel | Zoom the timeline at the pointer (plain wheel scrolls) |
 | `F` | Fullscreen |

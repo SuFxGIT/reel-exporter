@@ -1,32 +1,51 @@
 import { useCallback, useState } from "react"
 
-export type ScreenshotFormat = "png" | "jpeg"
+export type ScreenshotFormat = "png" | "jpeg" | "webp"
 export type SizePreset = "source" | "1080" | "720" | "custom"
 export type ClipQuality = "high" | "balanced" | "small"
+export type ExportFormat = "mp4" | "shorts" | "gif"
+export type ShortsFit = "blur" | "crop" | "bars"
+export type GifWidth = 320 | 480 | 640
+export type GifFps = 10 | 15 | 20
+
+/** GIFs grow fast; the server refuses longer ranges. */
+export const GIF_MAX_SECONDS = 30
 
 export interface ScreenshotOptions {
   format: ScreenshotFormat
   size: SizePreset
   /** Used when size is "custom". */
   customWidth: number
+  /** 50..100 for JPEG and WebP; 100 makes WebP lossless. Ignored for PNG. */
+  quality: number
 }
 
 export interface ClipOptions {
+  format: ExportFormat
   size: Exclude<SizePreset, "custom">
   quality: ClipQuality
   /** Include the selected audio track. */
   audio: boolean
+  /** Shorts: how a widescreen picture fills the 9:16 frame. */
+  fit: ShortsFit
+  gifWidth: GifWidth
+  gifFps: GifFps
 }
 
 export const defaultScreenshotOptions: ScreenshotOptions = {
   format: "png",
   size: "source",
   customWidth: 1280,
+  quality: 90,
 }
 export const defaultClipOptions: ClipOptions = {
+  format: "mp4",
   size: "source",
   quality: "balanced",
   audio: true,
+  fit: "blur",
+  gifWidth: 480,
+  gifFps: 15,
 }
 
 const SCREENSHOT_KEY = "reel-vault:screenshot-options"

@@ -73,6 +73,8 @@ async function main(): Promise<void> {
       zscale: caps.zscale,
       tonemap: caps.tonemap,
       libx264: caps.libx264,
+      libwebp: caps.libwebp,
+      gif: caps.gif,
     },
     "ffmpeg ready"
   )
