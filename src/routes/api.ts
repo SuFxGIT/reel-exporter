@@ -28,6 +28,7 @@ import { logger } from "../logger.js"
 import {
   CaptureError,
   captureUrls,
+  compactScreenshots,
   fileVersion,
   reorderScreenshots,
   screenshotFolder,
@@ -855,6 +856,11 @@ export function createApi(deps: ApiDeps): Router {
         { file: path.relative(config.outputPath, abs) },
         "capture deleted"
       )
+      // Keep the remaining screenshots 1..n so the strip and the files agree.
+      if (parseCaptureNumber(path.basename(abs)) !== null)
+        await compactScreenshots(path.dirname(abs)).catch((err: Error) =>
+          logger.warn({ err }, "could not renumber after delete")
+        )
       res.status(204).end()
     })
   )

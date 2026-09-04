@@ -5,6 +5,7 @@ import { config } from "../config.js"
 import {
   nextCaptureNumber,
   parseCaptureNumber,
+  renumberPlan,
   safeName,
 } from "../library/naming.js"
 import type { PlayableInfo } from "../library/store.js"
@@ -117,6 +118,29 @@ export function allocateScreenshot(
   return next
 }
 
+const pendingIn = (dir: string): boolean =>
+  [...reserved].some((p) => path.dirname(p) === dir)
+
+/** Applies renames in two phases so "1 -> 2" and "2 -> 1" never overwrite each other. */
+async function applyRenames(
+  dir: string,
+  moves: Array<{ from: string; to: string }>
+): Promise<void> {
+  const staged = moves.map((m, i) => ({
+    ...m,
+    tmp: `.reorder-${process.pid}-${i}${path.extname(m.from)}`,
+  }))
+  for (const m of staged)
+    await fs.rename(path.join(dir, m.from), path.join(dir, m.tmp))
+  for (const m of staged)
+    await fs.rename(path.join(dir, m.tmp), path.join(dir, m.to))
+}
+
+const numberedIn = async (dir: string): Promise<string[]> =>
+  (await fs.readdir(dir).catch(() => [] as string[])).filter(
+    (n) => parseCaptureNumber(n) !== null
+  )
+
 /**
  * Renumbers a title's screenshots so `names[i]` becomes `${i + 1}.<ext>`.
  * `names` must list every numbered screenshot in the folder exactly once.
@@ -128,15 +152,13 @@ export function reorderScreenshots(
   const run = async () => {
     const folder = screenshotFolder(info)
     const dir = path.join(config.outputPath, folder)
-    if ([...reserved].some((p) => path.dirname(p) === dir))
+    if (pendingIn(dir))
       throw new CaptureError(
         409,
         "busy",
         "A screenshot is still being saved. Try again in a moment."
       )
-    const existing = (await fs.readdir(dir).catch(() => [] as string[]))
-      .filter((n) => parseCaptureNumber(n) !== null)
-      .sort()
+    const existing = (await numberedIn(dir)).sort()
     const wanted = [...names].sort()
     if (
       wanted.length !== existing.length ||
@@ -147,23 +169,37 @@ export function reorderScreenshots(
         "stale",
         "The screenshots changed since the list was loaded. Refresh and try again."
       )
-    const plan = names.map((from, i) => ({
-      from,
-      to: `${i + 1}${path.extname(from).toLowerCase()}`,
-    }))
-    const moves = plan.filter((m) => m.from !== m.to)
-    if (moves.length === 0) return []
-    // Two phases so "1 -> 2" and "2 -> 1" never overwrite each other.
-    const staged = moves.map((m, i) => ({
-      ...m,
-      tmp: `.reorder-${process.pid}-${i}${path.extname(m.from)}`,
-    }))
-    for (const m of staged)
-      await fs.rename(path.join(dir, m.from), path.join(dir, m.tmp))
-    for (const m of staged)
-      await fs.rename(path.join(dir, m.tmp), path.join(dir, m.to))
-    logger.info({ folder, moves: moves.length }, "screenshots renumbered")
+    const moves = renumberPlan(names)
+    if (moves.length > 0) {
+      await applyRenames(dir, moves)
+      logger.info({ folder, moves: moves.length }, "screenshots renumbered")
+    }
     return moves
+  }
+  const next = allocating.then(run, run)
+  allocating = next.catch(() => undefined)
+  return next
+}
+
+/**
+ * Closes gaps after a delete so a folder's screenshots are always 1..n in
+ * their current order. Skipped while a screenshot is still being written.
+ */
+export function compactScreenshots(dir: string): Promise<number> {
+  const run = async () => {
+    if (pendingIn(dir)) return 0
+    const ordered = (await numberedIn(dir)).sort(
+      (a, b) => parseCaptureNumber(a)! - parseCaptureNumber(b)!
+    )
+    const moves = renumberPlan(ordered)
+    if (moves.length > 0) {
+      await applyRenames(dir, moves)
+      logger.info(
+        { folder: path.relative(config.outputPath, dir), moves: moves.length },
+        "screenshots renumbered"
+      )
+    }
+    return moves.length
   }
   const next = allocating.then(run, run)
   allocating = next.catch(() => undefined)

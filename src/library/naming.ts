@@ -322,3 +322,18 @@ export function nextCaptureNumber(names: Iterable<string>): number {
   }
   return max + 1
 }
+
+/**
+ * Renames that turn `ordered` (numbered screenshot names in their intended
+ * order) into 1.ext, 2.ext, ... Names already in place are left out.
+ */
+export function renumberPlan(
+  ordered: string[]
+): Array<{ from: string; to: string }> {
+  return ordered
+    .map((from, i) => {
+      const dot = from.lastIndexOf(".")
+      return { from, to: `${i + 1}${from.slice(dot).toLowerCase()}` }
+    })
+    .filter((m) => m.from !== m.to)
+}

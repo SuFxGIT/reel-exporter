@@ -12,6 +12,7 @@ import {
   sortKey,
   nextCaptureNumber,
   parseCaptureNumber,
+  renumberPlan,
 } from "../library/naming.js"
 
 describe("parseSeasonDir", () => {
@@ -241,5 +242,25 @@ describe("parseCaptureNumber", () => {
     expect(parseCaptureNumber("7.mp4")).toBeNull()
     expect(parseCaptureNumber("07a.png")).toBeNull()
     expect(parseCaptureNumber("Title - 00-01-00.000.png")).toBeNull()
+  })
+})
+
+describe("renumberPlan", () => {
+  it("closes gaps and keeps extensions", () => {
+    expect(renumberPlan(["1.png", "3.jpg", "4.PNG"])).toEqual([
+      { from: "3.jpg", to: "2.jpg" },
+      { from: "4.PNG", to: "3.png" },
+    ])
+  })
+
+  it("is empty when everything is already in place", () => {
+    expect(renumberPlan(["1.png", "2.jpg"])).toEqual([])
+  })
+
+  it("renumbers a reordered list", () => {
+    expect(renumberPlan(["2.png", "1.png"])).toEqual([
+      { from: "2.png", to: "1.png" },
+      { from: "1.png", to: "2.png" },
+    ])
   })
 })
