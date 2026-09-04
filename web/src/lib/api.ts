@@ -153,6 +153,7 @@ export type PeaksResponse =
 
 export interface Capture {
   name: string
+  relPath: string
   kind: "screenshot" | "clip"
   size: number
   mtime: string
@@ -280,6 +281,8 @@ export const api = {
     }),
   captures: (id: string) =>
     request<CapturesResponse>(`/api/items/${id}/captures`),
+  deleteCapture: (capture: { url: string }) =>
+    request<void>(capture.url, { method: "DELETE" }),
   sources: () => request<SourcesResponse>("/api/sources"),
   addSource: async (p: string) => {
     const r = await request<{ source: Source }>("/api/sources", {

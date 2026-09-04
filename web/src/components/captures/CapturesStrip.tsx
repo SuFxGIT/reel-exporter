@@ -1,8 +1,17 @@
-import { Download, Film, Image as ImageIcon, Loader2, X } from "lucide-react"
+import { useEffect, useState } from "react"
+import {
+  Download,
+  Film,
+  Image as ImageIcon,
+  Loader2,
+  Trash2,
+  X,
+} from "lucide-react"
 import { toast } from "sonner"
 import { api, type Capture, type Job } from "@/lib/api"
 import { useCaptures, useInvalidate } from "@/lib/queries"
 import { formatBytes, formatTime } from "@/lib/time"
+import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import {
@@ -80,60 +89,125 @@ export function CapturesStrip({ itemId, activeJob }: Props) {
         </div>
       ))}
       {list.map((c) => (
-        <CaptureTile key={c.name} capture={c} />
+        <CaptureTile key={c.relPath} capture={c} itemId={itemId} />
       ))}
     </div>
   )
 }
 
-function CaptureTile({ capture }: { capture: Capture }) {
+function CaptureTile({
+  capture,
+  itemId,
+}: {
+  capture: Capture
+  itemId: string
+}) {
+  const invalidate = useInvalidate()
+  const [confirm, setConfirm] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+
+  // The delete button asks once, then forgets after a few seconds.
+  useEffect(() => {
+    if (!confirm) return
+    const t = setTimeout(() => setConfirm(false), 4000)
+    return () => clearTimeout(t)
+  }, [confirm])
+
+  const remove = async () => {
+    if (!confirm) {
+      setConfirm(true)
+      return
+    }
+    setDeleting(true)
+    try {
+      await api.deleteCapture(capture)
+      toast(`Deleted ${capture.name}`)
+      void invalidate.captures(itemId)
+    } catch (err) {
+      toast.error("Could not delete the file", {
+        description: (err as Error).message,
+      })
+      setDeleting(false)
+      setConfirm(false)
+    }
+  }
+
   return (
-    <Tooltip>
-      <TooltipTrigger
-        render={
-          <a
-            href={capture.url}
-            target="_blank"
-            rel="noreferrer"
-            className="group bg-muted/40 focus-visible:ring-ring relative block h-full w-[104px] shrink-0 overflow-hidden rounded-md border outline-none focus-visible:ring-2"
-          />
-        }
-      >
-        <img
-          src={capture.thumbUrl}
-          alt=""
-          loading="lazy"
-          className="h-full w-full object-cover"
-        />
-        <span className="absolute top-1 left-1 rounded bg-black/60 p-0.5 text-white/90">
-          {capture.kind === "clip" ? (
-            <Film className="size-3" />
-          ) : (
-            <ImageIcon className="size-3" />
-          )}
-        </span>
-        <Button
-          variant="secondary"
-          size="icon-xs"
-          className="absolute right-1 bottom-1 opacity-0 transition-opacity group-hover:opacity-100"
+    <div
+      className={cn(
+        "group bg-muted/40 relative h-full w-[104px] shrink-0 overflow-hidden rounded-md border",
+        deleting && "opacity-50"
+      )}
+    >
+      <Tooltip>
+        <TooltipTrigger
           render={
             <a
-              href={capture.downloadUrl}
-              aria-label="Download"
-              onClick={(e) => e.stopPropagation()}
+              href={capture.url}
+              target="_blank"
+              rel="noreferrer"
+              className="focus-visible:ring-ring block h-full w-full outline-none focus-visible:ring-2"
             />
           }
         >
-          <Download />
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent side="top" className="max-w-sm">
-        <span dir="auto">{capture.name}</span>
-        <span className="text-background/70">
-          {" "}
-          · {formatBytes(capture.size)}
-        </span>
-      </TooltipContent>
-    </Tooltip>
+          <img
+            src={capture.thumbUrl}
+            alt=""
+            loading="lazy"
+            className="h-full w-full object-cover"
+          />
+        </TooltipTrigger>
+        <TooltipContent side="top" className="max-w-sm">
+          <span dir="auto">{capture.name}</span>
+          <span className="text-background/70">
+            {" "}
+            · {formatBytes(capture.size)}
+          </span>
+        </TooltipContent>
+      </Tooltip>
+      <span className="pointer-events-none absolute top-1 left-1 rounded bg-black/60 p-0.5 text-white/90">
+        {capture.kind === "clip" ? (
+          <Film className="size-3" />
+        ) : (
+          <ImageIcon className="size-3" />
+        )}
+      </span>
+      <div
+        className={cn(
+          "absolute right-1 bottom-1 flex items-center gap-1 transition-opacity group-focus-within:opacity-100 group-hover:opacity-100 [@media(hover:none)]:opacity-100",
+          confirm ? "opacity-100" : "opacity-0"
+        )}
+      >
+        {confirm ? (
+          <Button
+            variant="destructive"
+            size="xs"
+            onClick={remove}
+            disabled={deleting}
+            aria-label={`Confirm deleting ${capture.name}`}
+          >
+            Delete?
+          </Button>
+        ) : (
+          <>
+            <Button
+              variant="secondary"
+              size="icon-xs"
+              render={<a href={capture.downloadUrl} aria-label="Download" />}
+            >
+              <Download />
+            </Button>
+            <Button
+              variant="secondary"
+              size="icon-xs"
+              onClick={remove}
+              aria-label={`Delete ${capture.name}`}
+            >
+              <Trash2 />
+            </Button>
+          </>
+        )}
+      </div>
+    </div>
   )
 }

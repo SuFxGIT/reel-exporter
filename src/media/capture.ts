@@ -2,7 +2,7 @@ import { promises as fs } from "node:fs"
 import path from "node:path"
 import PQueue from "p-queue"
 import { config } from "../config.js"
-import { formatTimestampForName, safeName } from "../library/naming.js"
+import { nextCaptureNumber, safeName } from "../library/naming.js"
 import type { PlayableInfo } from "../library/store.js"
 import { logger } from "../logger.js"
 import { exists } from "../util/async.js"
@@ -13,6 +13,7 @@ import type { ProbeResult } from "./probe.js"
 
 const screenshotQueue = new PQueue({ concurrency: 2 })
 const reserved = new Set<string>()
+let allocating: Promise<unknown> = Promise.resolve()
 
 export interface CaptureTarget {
   /** Absolute directory of the title. */
@@ -55,6 +56,39 @@ export async function allocateCapture(
     return { dir, absPath, relPath: `${folder}/${name}`, name }
   }
   throw new Error("Could not find a free file name for the capture.")
+}
+
+/**
+ * Folder that holds a title's screenshots: OUTPUT/<Title (Year)> for movies and
+ * OUTPUT/<Show (Year)>/<S01E02> for episodes (relative to OUTPUT_PATH).
+ */
+export function screenshotFolder(info: PlayableInfo): string {
+  const folder = safeName(info.folderName)
+  return info.episodeTag ? `${folder}/${safeName(info.episodeTag)}` : folder
+}
+
+/** Reserves the next numbered screenshot name: OUTPUT/<folder>/<n>.<ext> */
+export function allocateScreenshot(
+  info: PlayableInfo,
+  ext: string
+): Promise<CaptureTarget> {
+  const run = async (): Promise<CaptureTarget> => {
+    const folder = screenshotFolder(info)
+    const dir = path.join(config.outputPath, folder)
+    await fs.mkdir(dir, { recursive: true })
+    const names = await fs.readdir(dir).catch(() => [] as string[])
+    const pending = [...reserved]
+      .filter((p) => path.dirname(p) === dir)
+      .map((p) => path.basename(p))
+    const name = `${nextCaptureNumber([...names, ...pending])}.${ext}`
+    const absPath = path.join(dir, name)
+    reserved.add(absPath)
+    return { dir, absPath, relPath: `${folder}/${name}`, name }
+  }
+  // Serialised so two concurrent screenshots never pick the same number.
+  const next = allocating.then(run, run)
+  allocating = next.catch(() => undefined)
+  return next
 }
 
 export function releaseCapture(target: CaptureTarget): void {
@@ -110,7 +144,7 @@ export function takeScreenshot(
     if (!probe.hasVideo || !probe.video)
       throw new Error("This file has no video stream to capture.")
     const ext = opts.format === "jpeg" ? "jpg" : "png"
-    const target = await allocateCapture(info, formatTimestampForName(t), ext)
+    const target = await allocateScreenshot(info, ext)
     const tmp = `${target.absPath}.tmp.${ext}`
     try {
       const encoder =

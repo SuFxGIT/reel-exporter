@@ -59,6 +59,7 @@ export default function App() {
               key={item.data.id}
               item={item.data}
               onToggleSidebar={() => setDrawer((d) => !d)}
+              onClose={() => navigate(null)}
             />
           ) : (
             <EmptyState

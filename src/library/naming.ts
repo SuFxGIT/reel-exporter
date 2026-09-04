@@ -306,3 +306,13 @@ export function formatTimestampForName(seconds: number): string {
   const pad = (n: number, w = 2) => String(n).padStart(w, "0")
   return `${pad(h)}-${pad(m)}-${pad(s)}.${pad(ms, 3)}`
 }
+
+/** Next free number for "1.png", "2.jpg", ... given the names already in the folder. */
+export function nextCaptureNumber(names: Iterable<string>): number {
+  let max = 0
+  for (const n of names) {
+    const m = /^(\d{1,9})\.(?:png|jpe?g)$/i.exec(n)
+    if (m) max = Math.max(max, Number(m[1]))
+  }
+  return max + 1
+}

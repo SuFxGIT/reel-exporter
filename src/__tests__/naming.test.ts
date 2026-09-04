@@ -10,6 +10,7 @@ import {
   parseSeasonDir,
   safeName,
   sortKey,
+  nextCaptureNumber,
 } from "../library/naming.js"
 
 describe("parseSeasonDir", () => {
@@ -209,5 +210,25 @@ describe("misc", () => {
     expect(formatTimestampForName(754.567)).toBe("00-12-34.567")
     expect(formatTimestampForName(3599.9996)).toBe("01-00-00.000")
     expect(formatTimestampForName(0)).toBe("00-00-00.000")
+  })
+})
+
+describe("nextCaptureNumber", () => {
+  it("starts at 1 and continues after the highest number", () => {
+    expect(nextCaptureNumber([])).toBe(1)
+    expect(nextCaptureNumber(["1.png", "2.jpg", "3.PNG"])).toBe(4)
+    expect(nextCaptureNumber(["2.png", "7.jpg", "4.png"])).toBe(8)
+  })
+
+  it("ignores clips, temp files and names that are not plain numbers", () => {
+    expect(
+      nextCaptureNumber([
+        "Arrival (2016) - 00-10-00.000.png",
+        "00-10-00.000 to 00-10-05.000.mp4",
+        "5.png.tmp.png",
+        "1a.png",
+        "3.png",
+      ])
+    ).toBe(4)
   })
 })

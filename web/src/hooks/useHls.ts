@@ -104,6 +104,11 @@ export function useHls(
         video.removeAttribute("src")
         video.load()
       }
+      // Tell the server to stop this transcode now instead of at the idle timeout.
+      void fetch(src.replace(/\/index\.m3u8.*$/, ""), {
+        method: "DELETE",
+        keepalive: true,
+      }).catch(() => undefined)
     }
   }, [videoRef, src])
 

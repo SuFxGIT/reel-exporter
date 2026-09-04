@@ -71,7 +71,7 @@ The same operations are available over the API: `GET /api/sources`, `POST /api/s
 |---|---|---|
 | `/media` | read-only | Your main media share. Pick the folders to import under Media sources. Never written to. |
 | `/media2`, `/media3`, ... | read-only | Optional extra shares. Any container path works; add it under Media sources. |
-| `/output` | read-write | Screenshots (PNG) and clips (MP4), one folder per movie or show. |
+| `/output` | read-write | Screenshots (numbered PNG or JPEG) and clips (MP4), one folder per movie or show. |
 | `/config` | read-write | Library index, probe and waveform caches, and the temporary transcode segments. Safe to delete. |
 
 | Variable | Default | Purpose |
@@ -89,7 +89,7 @@ The same operations are available over the API: `GET /api/sources`, `POST /api/s
 - **Library.** Only the folders you ticked are walked (a 1,500 movie folder takes a couple of seconds) and the result is cached in `/config/library.json`, so restarts are instant. Movies and shows are recognised from their folder structure, not from the library name: `Show (2022)/Season 01/Show - S01E01 - Title.mkv` is a show, `Movie (1999)/Movie (1999).mkv` is a movie. Episode names like `S01E01`, `S01E01-E02`, `21x1088`, `Ep14` and bare numbers inside a season folder all work.
 - **Preview.** The server runs ffmpeg per title, producing a 4 second fragmented-MP4 HLS stream (H.264 and AAC, at most 1080p) that hls.js feeds to the browser. Seeking outside the buffered range restarts ffmpeg at that exact segment, so any codec plays and only the part you watch is transcoded. Idle transcodes stop after a minute.
 - **Captures use the original file.** A screenshot decodes the exact frame at the timestamp and writes it at source resolution unless you asked for a smaller size. A clip re-encodes the selected range from the source into an MP4 that plays anywhere. HDR sources go through `zscale` and `tonemap` to BT.709 for both, and any downscale happens before tone-mapping.
-- **Output layout.** `/output/<Title (Year)>/<Title (Year)> - 00-12-34.567.png` for movies and `/output/<Show (Year)>/<Show (Year)> - S01E02 - 00-12-34.567.png` for episodes. Clips use `... - <in> to <out>.mp4`. Unicode titles are kept as they are.
+- **Output layout.** Screenshots are numbered: `/output/<Title (Year)>/1.png`, `2.jpg`, ... for movies and `/output/<Show (Year)>/S01E02/1.png` for episodes; the next number is always one above the highest in the folder. Clips keep their time range: `/output/<Title (Year)>/<Title (Year)> - <in> to <out>.mp4` (episodes add ` - S01E02`). Unicode titles are kept as they are. The strip under the timeline lists a title's captures with download and delete buttons.
 
 ## Export options
 

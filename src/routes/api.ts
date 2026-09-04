@@ -24,7 +24,11 @@ import {
 } from "../library/sources.js"
 import type { LibraryStore, PlayableInfo } from "../library/store.js"
 import { logger } from "../logger.js"
-import { captureUrls, takeScreenshot } from "../media/capture.js"
+import {
+  captureUrls,
+  screenshotFolder,
+  takeScreenshot,
+} from "../media/capture.js"
 import type { FfmpegCapabilities } from "../media/ffmpeg.js"
 import { renderCaptureThumb, renderFrame } from "../media/frames.js"
 import { HlsError, hlsSessions } from "../media/hls.js"
@@ -711,37 +715,49 @@ export function createApi(deps: ApiDeps): Router {
         throw new ApiError(404, "No playable item with that id.", "not_found")
       const folder = safeName(info.folderName)
       const dir = path.join(config.outputPath, folder)
-      const names = await fs.readdir(dir).catch(() => [] as string[])
       const tag = info.episodeTag ? ` - ${info.episodeTag} - ` : null
+      // Numbered screenshots live in the title folder (movies) or an episode
+      // sub-folder; clips and older captures sit in the title folder with the
+      // episode tag in their name.
+      const shotFolder = screenshotFolder(info)
+      const shotDir = path.join(config.outputPath, shotFolder)
+      const candidates: Array<{ dir: string; folder: string; name: string }> =
+        []
+      for (const n of await fs.readdir(dir).catch(() => [] as string[])) {
+        if (!CAPTURE_EXT.has(path.extname(n).toLowerCase())) continue
+        if (tag && !n.includes(tag)) continue
+        candidates.push({ dir, folder, name: n })
+      }
+      if (shotDir !== dir) {
+        for (const n of await fs.readdir(shotDir).catch(() => [] as string[])) {
+          if (!CAPTURE_EXT.has(path.extname(n).toLowerCase())) continue
+          candidates.push({ dir: shotDir, folder: shotFolder, name: n })
+        }
+      }
       const entries = await Promise.all(
-        names
-          .filter(
-            (n) =>
-              CAPTURE_EXT.has(path.extname(n).toLowerCase()) &&
-              (!tag || n.includes(tag))
-          )
-          .map(async (n) => {
-            const st = await fs.stat(path.join(dir, n)).catch(() => null)
-            if (!st || !st.isFile()) return null
-            const relPath = `${folder}/${n}`
-            return {
-              name: n,
-              kind:
-                path.extname(n).toLowerCase() === ".mp4"
-                  ? ("clip" as const)
-                  : ("screenshot" as const),
-              size: st.size,
-              mtime: st.mtime.toISOString(),
-              ...captureUrls(relPath),
-            }
-          })
+        candidates.map(async (c) => {
+          const st = await fs.stat(path.join(c.dir, c.name)).catch(() => null)
+          if (!st || !st.isFile()) return null
+          const relPath = `${c.folder}/${c.name}`
+          return {
+            name: c.name,
+            relPath,
+            kind:
+              path.extname(c.name).toLowerCase() === ".mp4"
+                ? ("clip" as const)
+                : ("screenshot" as const),
+            size: st.size,
+            mtime: st.mtime.toISOString(),
+            ...captureUrls(relPath),
+          }
+        })
       )
       const list = entries
         .filter((e): e is NonNullable<typeof e> => e !== null)
         .sort((a, b) => b.mtime.localeCompare(a.mtime))
         .slice(0, 60)
       res.json({
-        folder: relOrAbs(dir),
+        folder: relOrAbs(shotDir),
         captures: list,
         jobs: jobs
           .list(id)

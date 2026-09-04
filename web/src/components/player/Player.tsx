@@ -19,12 +19,13 @@ import { VideoStage } from "./VideoStage"
 interface Props {
   item: ItemDetail
   onToggleSidebar: () => void
+  onClose: () => void
 }
 
 const VOLUME_KEY = "reel-vault:volume"
 const MUTED_KEY = "reel-vault:muted"
 
-export function Player({ item, onToggleSidebar }: Props) {
+export function Player({ item, onToggleSidebar, onClose }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [videoEl, setVideoEl] = useState<HTMLVideoElement | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -224,6 +225,11 @@ export function Player({ item, onToggleSidebar }: Props) {
           /* ignore */
         }
       },
+      close: () => {
+        videoRef.current?.pause()
+        if (document.fullscreenElement) void document.exitFullscreen()
+        onClose()
+      },
       toggleFullscreen: () => {
         const stage = videoRef.current?.closest("[data-stage]")
         if (document.fullscreenElement) void document.exitFullscreen()
@@ -244,6 +250,7 @@ export function Player({ item, onToggleSidebar }: Props) {
     timeline,
     shotOpts,
     clipOpts,
+    onClose,
   ])
 
   useShortcuts(actions, true)

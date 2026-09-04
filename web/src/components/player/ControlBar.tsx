@@ -6,6 +6,7 @@ import {
   Play,
   RotateCcw,
   RotateCw,
+  Square,
   Volume2,
   VolumeX,
   X,
@@ -44,6 +45,8 @@ export interface PlayerActions {
   toggleMute: () => void
   setVolume: (v: number) => void
   toggleFullscreen: () => void
+  /** Stops playback and closes the video. */
+  close: () => void
 }
 
 interface Props {
@@ -117,6 +120,9 @@ export function ControlBar({
         onClick={actions.togglePlay}
       >
         {media.paused ? <Play /> : <Pause />}
+      </IconButton>
+      <IconButton label="Stop and close the video" onClick={actions.close}>
+        <Square />
       </IconButton>
       <IconButton label="Back 5 s (←)" onClick={() => actions.seekBy(-5)}>
         <RotateCcw />
