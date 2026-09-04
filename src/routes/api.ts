@@ -14,6 +14,7 @@ import {
   isIgnoredEntry,
   isVideoFile,
   naturalCompare,
+  parseCaptureNumber,
   safeName,
 } from "../library/naming.js"
 import {
@@ -25,7 +26,10 @@ import {
 import type { LibraryStore, PlayableInfo } from "../library/store.js"
 import { logger } from "../logger.js"
 import {
+  CaptureError,
   captureUrls,
+  fileVersion,
+  reorderScreenshots,
   screenshotFolder,
   takeScreenshot,
 } from "../media/capture.js"
@@ -739,6 +743,7 @@ export function createApi(deps: ApiDeps): Router {
           const st = await fs.stat(path.join(c.dir, c.name)).catch(() => null)
           if (!st || !st.isFile()) return null
           const relPath = `${c.folder}/${c.name}`
+          const number = c.dir === shotDir ? parseCaptureNumber(c.name) : null
           return {
             name: c.name,
             relPath,
@@ -746,16 +751,24 @@ export function createApi(deps: ApiDeps): Router {
               path.extname(c.name).toLowerCase() === ".mp4"
                 ? ("clip" as const)
                 : ("screenshot" as const),
+            ...(number !== null ? { number } : {}),
             size: st.size,
             mtime: st.mtime.toISOString(),
-            ...captureUrls(relPath),
+            ...captureUrls(relPath, fileVersion(st)),
           }
         })
       )
-      const list = entries
-        .filter((e): e is NonNullable<typeof e> => e !== null)
+      // Numbered screenshots first, in order (the strip mirrors the numbers);
+      // clips and older captures follow, newest first.
+      const all = entries.filter((e): e is NonNullable<typeof e> => e !== null)
+      const numbered = all
+        .filter((e) => e.number !== undefined)
+        .sort((a, b) => a.number! - b.number!)
+      const rest = all
+        .filter((e) => e.number === undefined)
         .sort((a, b) => b.mtime.localeCompare(a.mtime))
         .slice(0, 60)
+      const list = [...numbered, ...rest]
       res.json({
         folder: relOrAbs(shotDir),
         captures: list,
@@ -767,6 +780,30 @@ export function createApi(deps: ApiDeps): Router {
   )
 
   const relOrAbs = (dir: string): string => dir
+
+  const orderSchema = z.object({
+    names: z.array(z.string().min(1).max(64)).max(1000),
+  })
+  router.put(
+    "/items/:id/screenshots/order",
+    wrap(async (req, res) => {
+      const id = req.params.id as string
+      const info = store.getPlayable(id)
+      if (!info)
+        throw new ApiError(404, "No playable item with that id.", "not_found")
+      const { names } = parseBody(orderSchema, req.body)
+      if (names.some((n) => parseCaptureNumber(n) === null))
+        throw new ApiError(
+          400,
+          "Only numbered screenshots can be reordered.",
+          "bad_request"
+        )
+      if (new Set(names).size !== names.length)
+        throw new ApiError(400, "A name is listed twice.", "bad_request")
+      const moves = await reorderScreenshots(info, names)
+      res.json({ moves })
+    })
+  )
 
   const captureRoute = (req: Request): string => {
     const raw = req.params.path
@@ -881,7 +918,7 @@ export function errorHandler(
       .json({ error: { code: "hls", message: err.message } })
     return
   }
-  if (err instanceof SourcesError) {
+  if (err instanceof SourcesError || err instanceof CaptureError) {
     res
       .status(err.status)
       .json({ error: { code: err.code, message: err.message } })

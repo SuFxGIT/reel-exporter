@@ -155,6 +155,8 @@ export interface Capture {
   name: string
   relPath: string
   kind: "screenshot" | "clip"
+  /** Set for numbered screenshots (1.png, 2.jpg, ...). */
+  number?: number
   size: number
   mtime: string
   url: string
@@ -283,6 +285,15 @@ export const api = {
     request<CapturesResponse>(`/api/items/${id}/captures`),
   deleteCapture: (capture: { url: string }) =>
     request<void>(capture.url, { method: "DELETE" }),
+  reorderScreenshots: (id: string, names: string[]) =>
+    request<{ moves: Array<{ from: string; to: string }> }>(
+      `/api/items/${id}/screenshots/order`,
+      {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ names }),
+      }
+    ),
   sources: () => request<SourcesResponse>("/api/sources"),
   addSource: async (p: string) => {
     const r = await request<{ source: Source }>("/api/sources", {

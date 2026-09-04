@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState, type CSSProperties } from "react"
 import {
   Download,
   Film,
@@ -12,6 +12,7 @@ import { api, type Capture, type Job } from "@/lib/api"
 import { useCaptures, useInvalidate } from "@/lib/queries"
 import { formatBytes, formatTime } from "@/lib/time"
 import { cn } from "@/lib/utils"
+import { useReorder } from "@/hooks/useReorder"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import {
@@ -28,7 +29,46 @@ interface Props {
 export function CapturesStrip({ itemId, activeJob }: Props) {
   const captures = useCaptures(itemId)
   const invalidate = useInvalidate()
-  const list = captures.data?.captures ?? []
+  const list = useMemo(() => captures.data?.captures ?? [], [captures.data])
+  const serverNumbered = useMemo(
+    () => list.filter((c) => c.number !== undefined),
+    [list]
+  )
+  const rest = list.filter((c) => c.number === undefined)
+
+  // Optimistic order while a renumbering request is in flight.
+  const [localOrder, setLocalOrder] = useState<string[] | null>(null)
+  useEffect(() => setLocalOrder(null), [serverNumbered])
+  const numbered = useMemo(() => {
+    if (!localOrder) return serverNumbered
+    const byName = new Map(serverNumbered.map((c) => [c.name, c]))
+    return localOrder.flatMap((n) => byName.get(n) ?? [])
+  }, [localOrder, serverNumbered])
+
+  const reorder = useReorder(numbered.length, (from, to) => {
+    const next = [...numbered]
+    const [moved] = next.splice(from, 1)
+    next.splice(to, 0, moved!)
+    const names = next.map((c) => c.name)
+    setLocalOrder(names)
+    api
+      .reorderScreenshots(itemId, names)
+      .then(() => invalidate.captures(itemId))
+      .catch((err: Error) => {
+        setLocalOrder(null)
+        toast.error("Could not reorder the screenshots", {
+          description: err.message,
+        })
+      })
+  })
+  const drag = reorder.drag
+  // Full-row index the drop indicator sits before; n means after the last tile.
+  const indicatorAt =
+    drag && drag.to !== drag.from
+      ? drag.to < drag.from
+        ? drag.to
+        : drag.to + 1
+      : -1
   const otherJobs = (captures.data?.jobs ?? []).filter(
     (j) => j.id !== activeJob?.id
   )
@@ -88,19 +128,50 @@ export function CapturesStrip({ itemId, activeJob }: Props) {
           <Progress value={Math.round(job.progress * 100)} className="h-1.5" />
         </div>
       ))}
-      {list.map((c) => (
+      {numbered.map((c, i) => (
+        <span key={c.relPath} className="contents">
+          {indicatorAt === i && <DropIndicator />}
+          <CaptureTile
+            capture={c}
+            itemId={itemId}
+            dragProps={reorder.bind(i)}
+            dragging={drag?.from === i}
+            dragStyle={
+              drag?.from === i
+                ? { transform: `translateX(${drag.dx}px)` }
+                : undefined
+            }
+          />
+        </span>
+      ))}
+      {indicatorAt === numbered.length && <DropIndicator />}
+      {rest.map((c) => (
         <CaptureTile key={c.relPath} capture={c} itemId={itemId} />
       ))}
     </div>
   )
 }
 
+function DropIndicator() {
+  return (
+    <span className="relative w-0 shrink-0" aria-hidden>
+      <span className="bg-primary absolute top-0 -left-[5px] h-full w-0.5 rounded" />
+    </span>
+  )
+}
+
 function CaptureTile({
   capture,
   itemId,
+  dragProps,
+  dragging = false,
+  dragStyle,
 }: {
   capture: Capture
   itemId: string
+  dragProps?: ReturnType<ReturnType<typeof useReorder>["bind"]>
+  dragging?: boolean
+  dragStyle?: CSSProperties
 }) {
   const invalidate = useInvalidate()
   const [confirm, setConfirm] = useState(false)
@@ -134,8 +205,12 @@ function CaptureTile({
 
   return (
     <div
+      {...dragProps}
+      style={dragStyle}
       className={cn(
-        "group bg-muted/40 relative h-full w-[104px] shrink-0 overflow-hidden rounded-md border",
+        "group bg-muted/40 relative h-full w-[104px] shrink-0 overflow-hidden rounded-md border select-none",
+        dragProps && "cursor-grab",
+        dragging && "ring-primary z-10 cursor-grabbing opacity-80 ring-2",
         deleting && "opacity-50"
       )}
     >
@@ -146,6 +221,7 @@ function CaptureTile({
               href={capture.url}
               target="_blank"
               rel="noreferrer"
+              draggable={false}
               className="focus-visible:ring-ring block h-full w-full outline-none focus-visible:ring-2"
             />
           }
@@ -154,7 +230,8 @@ function CaptureTile({
             src={capture.thumbUrl}
             alt=""
             loading="lazy"
-            className="h-full w-full object-cover"
+            draggable={false}
+            className="pointer-events-none h-full w-full object-cover"
           />
         </TooltipTrigger>
         <TooltipContent side="top" className="max-w-sm">
@@ -162,11 +239,14 @@ function CaptureTile({
           <span className="text-background/70">
             {" "}
             · {formatBytes(capture.size)}
+            {dragProps ? " · drag to reorder" : ""}
           </span>
         </TooltipContent>
       </Tooltip>
-      <span className="pointer-events-none absolute top-1 left-1 rounded bg-black/60 p-0.5 text-white/90">
-        {capture.kind === "clip" ? (
+      <span className="tnum pointer-events-none absolute top-1 left-1 flex h-4 min-w-4 items-center justify-center rounded bg-black/60 px-1 text-[10px] leading-none font-medium text-white/90">
+        {capture.number !== undefined ? (
+          capture.number
+        ) : capture.kind === "clip" ? (
           <Film className="size-3" />
         ) : (
           <ImageIcon className="size-3" />

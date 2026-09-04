@@ -307,12 +307,18 @@ export function formatTimestampForName(seconds: number): string {
   return `${pad(h)}-${pad(m)}-${pad(s)}.${pad(ms, 3)}`
 }
 
+/** "12.png" -> 12; null for anything that is not a numbered screenshot. */
+export function parseCaptureNumber(name: string): number | null {
+  const m = /^(\d{1,9})\.(?:png|jpe?g)$/i.exec(name)
+  return m ? Number(m[1]) : null
+}
+
 /** Next free number for "1.png", "2.jpg", ... given the names already in the folder. */
 export function nextCaptureNumber(names: Iterable<string>): number {
   let max = 0
   for (const n of names) {
-    const m = /^(\d{1,9})\.(?:png|jpe?g)$/i.exec(n)
-    if (m) max = Math.max(max, Number(m[1]))
+    const num = parseCaptureNumber(n)
+    if (num !== null) max = Math.max(max, num)
   }
   return max + 1
 }

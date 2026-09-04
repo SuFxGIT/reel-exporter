@@ -11,6 +11,7 @@ import {
   safeName,
   sortKey,
   nextCaptureNumber,
+  parseCaptureNumber,
 } from "../library/naming.js"
 
 describe("parseSeasonDir", () => {
@@ -230,5 +231,15 @@ describe("nextCaptureNumber", () => {
         "3.png",
       ])
     ).toBe(4)
+  })
+})
+
+describe("parseCaptureNumber", () => {
+  it("reads plain numbered image names only", () => {
+    expect(parseCaptureNumber("7.png")).toBe(7)
+    expect(parseCaptureNumber("12.JPG")).toBe(12)
+    expect(parseCaptureNumber("7.mp4")).toBeNull()
+    expect(parseCaptureNumber("07a.png")).toBeNull()
+    expect(parseCaptureNumber("Title - 00-01-00.000.png")).toBeNull()
   })
 })

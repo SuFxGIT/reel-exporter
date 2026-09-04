@@ -2,7 +2,11 @@ import { promises as fs } from "node:fs"
 import path from "node:path"
 import PQueue from "p-queue"
 import { config } from "../config.js"
-import { nextCaptureNumber, safeName } from "../library/naming.js"
+import {
+  nextCaptureNumber,
+  parseCaptureNumber,
+  safeName,
+} from "../library/naming.js"
 import type { PlayableInfo } from "../library/store.js"
 import { logger } from "../logger.js"
 import { exists } from "../util/async.js"
@@ -25,18 +29,40 @@ export interface CaptureTarget {
   name: string
 }
 
-export function captureUrls(relPath: string): {
+export class CaptureError extends Error {
+  status: number
+  code: string
+  constructor(status: number, code: string, message: string) {
+    super(message)
+    this.name = "CaptureError"
+    this.status = status
+    this.code = code
+  }
+}
+
+/**
+ * URLs for a capture. `version` identifies the file content (inode + mtime) so
+ * cached thumbnails are not reused after files are renumbered.
+ */
+export function captureUrls(
+  relPath: string,
+  version?: string
+): {
   url: string
   thumbUrl: string
   downloadUrl: string
 } {
   const base = `/api/captures/${toUrlPath(relPath)}`
+  const v = version ? `&v=${encodeURIComponent(version)}` : ""
   return {
     url: base,
-    thumbUrl: `${base}?thumb=1`,
+    thumbUrl: `${base}?thumb=1${v}`,
     downloadUrl: `${base}?download=1`,
   }
 }
+
+export const fileVersion = (st: { ino: number; mtimeMs: number }): string =>
+  `${st.ino.toString(36)}-${Math.round(st.mtimeMs).toString(36)}`
 
 /** Reserves a unique output path: OUTPUT/<Title (Year)>/<base> - <suffix>.<ext> */
 export async function allocateCapture(
@@ -86,6 +112,59 @@ export function allocateScreenshot(
     return { dir, absPath, relPath: `${folder}/${name}`, name }
   }
   // Serialised so two concurrent screenshots never pick the same number.
+  const next = allocating.then(run, run)
+  allocating = next.catch(() => undefined)
+  return next
+}
+
+/**
+ * Renumbers a title's screenshots so `names[i]` becomes `${i + 1}.<ext>`.
+ * `names` must list every numbered screenshot in the folder exactly once.
+ */
+export function reorderScreenshots(
+  info: PlayableInfo,
+  names: string[]
+): Promise<Array<{ from: string; to: string }>> {
+  const run = async () => {
+    const folder = screenshotFolder(info)
+    const dir = path.join(config.outputPath, folder)
+    if ([...reserved].some((p) => path.dirname(p) === dir))
+      throw new CaptureError(
+        409,
+        "busy",
+        "A screenshot is still being saved. Try again in a moment."
+      )
+    const existing = (await fs.readdir(dir).catch(() => [] as string[]))
+      .filter((n) => parseCaptureNumber(n) !== null)
+      .sort()
+    const wanted = [...names].sort()
+    if (
+      wanted.length !== existing.length ||
+      wanted.some((n, i) => n !== existing[i])
+    )
+      throw new CaptureError(
+        409,
+        "stale",
+        "The screenshots changed since the list was loaded. Refresh and try again."
+      )
+    const plan = names.map((from, i) => ({
+      from,
+      to: `${i + 1}${path.extname(from).toLowerCase()}`,
+    }))
+    const moves = plan.filter((m) => m.from !== m.to)
+    if (moves.length === 0) return []
+    // Two phases so "1 -> 2" and "2 -> 1" never overwrite each other.
+    const staged = moves.map((m, i) => ({
+      ...m,
+      tmp: `.reorder-${process.pid}-${i}${path.extname(m.from)}`,
+    }))
+    for (const m of staged)
+      await fs.rename(path.join(dir, m.from), path.join(dir, m.tmp))
+    for (const m of staged)
+      await fs.rename(path.join(dir, m.tmp), path.join(dir, m.to))
+    logger.info({ folder, moves: moves.length }, "screenshots renumbered")
+    return moves
+  }
   const next = allocating.then(run, run)
   allocating = next.catch(() => undefined)
   return next
