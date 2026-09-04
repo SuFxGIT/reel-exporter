@@ -726,6 +726,11 @@ export function createApi(deps: ApiDeps): Router {
       // episode tag in their name.
       const shotFolder = screenshotFolder(info)
       const shotDir = path.join(config.outputPath, shotFolder)
+      // Close any gap left by files removed outside the app (or by older
+      // versions) so the numbers on the tiles always run 1..n.
+      await compactScreenshots(shotDir).catch((err: Error) =>
+        logger.warn({ err }, "could not renumber screenshots")
+      )
       const candidates: Array<{ dir: string; folder: string; name: string }> =
         []
       for (const n of await fs.readdir(dir).catch(() => [] as string[])) {
