@@ -25,7 +25,8 @@ function Slider({
 
   return (
     <SliderPrimitive.Root
-      className={cn("data-horizontal:w-full data-vertical:h-full", className)}
+      // Plain w-full (not a data-horizontal: variant) so a caller's width class wins.
+      className={cn("w-full data-vertical:h-full", className)}
       data-slot="slider"
       defaultValue={defaultValue}
       value={value}
