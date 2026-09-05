@@ -18,6 +18,7 @@ import {
   spawnFfmpeg,
   type RegisteredProcess,
 } from "./ffmpeg.js"
+import { detectBars } from "./bars.js"
 import {
   GIF_PALETTE,
   GIF_PALETTEUSE,
@@ -26,6 +27,7 @@ import {
   gifFilters,
   inputArgs,
   shortsFilters,
+  type Crop,
   type ShortsFit,
 } from "./filters.js"
 import type { ProbeResult } from "./probe.js"
@@ -55,7 +57,14 @@ export type ExportParams =
       /** Downscale so the width is at most this many pixels; omit for source resolution. */
       maxWidth?: number
     })
-  | (ExportBase & { format: "shorts"; fit: ShortsFit })
+  | (ExportBase & {
+      format: "shorts"
+      fit: ShortsFit
+      /** Detect and drop black bars baked into the picture. */
+      trimBars: boolean
+      /** Crop fit only: window position, 0..1 from the left/top. */
+      focus?: { x: number; y: number }
+    })
   | (ExportBase & { format: "gif"; fps: number; width: number })
 
 /** Kept as "clip" for MP4 so existing clients keep working. */
@@ -175,7 +184,8 @@ export function exportArgs(
   probe: ProbeResult,
   params: ExportParams,
   tmp: string,
-  pass: 1 | 2 = 1
+  pass: 1 | 2 = 1,
+  extra: { bars?: Crop } = {}
 ): string[] {
   const args = head(absPath, probe, params)
   const hasAudio =
@@ -233,7 +243,10 @@ export function exportArgs(
         "-filter_threads",
         "4",
         "-vf",
-        shortsFilters(probe, params.fit),
+        shortsFilters(probe, params.fit, {
+          ...(extra.bars ? { bars: extra.bars } : {}),
+          ...(params.focus ? { focus: params.focus } : {}),
+        }),
         ...x264Args(probe, params.quality)
       )
       if (hasAudio) args.push(...AAC_ARGS)
@@ -380,13 +393,28 @@ class JobManager {
       target = await allocateNumbered(info, ext)
       internal.target = target
       tmp = `${target.absPath}.tmp.${ext}`
+      // Shorts: find baked-in black bars first so every fit works on the picture.
+      let bars: Crop | null = null
+      if (params.format === "shorts" && params.trimBars) {
+        bars = await detectBars(
+          info.absPath,
+          probe,
+          params.start,
+          params.end
+        ).catch((err: Error) => {
+          log.warn({ job: job.id, err: err.message }, "bar detection failed")
+          return null
+        })
+        if (internal.cancelled) return
+      }
+      const extra = bars ? { bars } : {}
       const passes: Array<[string[], number, number]> =
         params.format === "gif"
           ? [
               [exportArgs(info.absPath, probe, params, tmp, 1), 0, 0.5],
               [exportArgs(info.absPath, probe, params, tmp, 2), 0.5, 0.99],
             ]
-          : [[exportArgs(info.absPath, probe, params, tmp), 0, 0.99]]
+          : [[exportArgs(info.absPath, probe, params, tmp, 1, extra), 0, 0.99]]
       for (const [args, from, to] of passes) {
         const { code, stderr } = await this.runPass(internal, args, from, to)
         if (internal.cancelled) return

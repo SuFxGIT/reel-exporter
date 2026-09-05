@@ -1,7 +1,7 @@
 name: Build image
 
-# Builds the Reel Vault image and pushes it to GitHub Container Registry.
-# Make the package public (repo -> Packages -> reel-vault -> Package settings)
+# Builds the Reel Exporter image and pushes it to GitHub Container Registry.
+# Make the package public (repo -> Packages -> reel-exporter -> Package settings)
 # so Unraid can pull it without a login.
 on:
   push:

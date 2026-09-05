@@ -26,8 +26,12 @@ interface Props {
   onClose: () => void
 }
 
-const VOLUME_KEY = "reel-vault:volume"
-const MUTED_KEY = "reel-vault:muted"
+const VOLUME_KEY = "reel-exporter:volume"
+const MUTED_KEY = "reel-exporter:muted"
+/** Reads a setting, falling back to the key used before the rename. */
+const stored = (key: string): string | null =>
+  localStorage.getItem(key) ??
+  localStorage.getItem(key.replace("reel-exporter:", "reel-vault:"))
 
 export function Player({ item, onToggleSidebar, onClose }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -72,8 +76,8 @@ export function Player({ item, onToggleSidebar, onClose }: Props) {
     const v = videoRef.current
     if (!v) return
     try {
-      const vol = localStorage.getItem(VOLUME_KEY)
-      const muted = localStorage.getItem(MUTED_KEY)
+      const vol = stored(VOLUME_KEY)
+      const muted = stored(MUTED_KEY)
       if (vol !== null) v.volume = Math.min(1, Math.max(0, Number(vol)))
       if (muted !== null) v.muted = muted === "1"
     } catch {
@@ -196,7 +200,14 @@ export function Player({ item, onToggleSidebar, onClose }: Props) {
                 width: clipOpts.gifWidth,
               }
             : clipOpts.format === "shorts"
-              ? { format: "shorts" as const, fit: clipOpts.fit }
+              ? {
+                  format: "shorts" as const,
+                  fit: clipOpts.fit,
+                  trimBars: clipOpts.trimBars,
+                  ...(clipOpts.fit === "crop"
+                    ? { focus: clipOpts.cropFocus }
+                    : {}),
+                }
               : {
                   format: "mp4" as const,
                   quality: clipOpts.quality,

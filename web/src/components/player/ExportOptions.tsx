@@ -1,5 +1,7 @@
 import { Camera, ChevronDown, Loader2, Scissors } from "lucide-react"
-import type { ItemDetail } from "@/lib/api"
+import { frameUrl, type BarsResponse, type ItemDetail } from "@/lib/api"
+import { useBars } from "@/lib/queries"
+import { CropPicker } from "./CropPicker"
 import {
   GIF_MAX_SECONDS,
   maxWidthFor,
@@ -293,6 +295,14 @@ export function ExportButton({
   onExport: () => void
 }) {
   const { format } = options
+  const rangeStart = selection?.start ?? 0
+  const rangeEnd = selection?.end ?? rangeStart + 5
+  const bars = useBars(
+    item.id,
+    rangeStart,
+    rangeEnd,
+    format === "shorts" && options.fit === "crop" && options.trimBars
+  )
   const size =
     format === "shorts"
       ? SHORTS_SIZE
@@ -320,7 +330,7 @@ export function ExportButton({
     format === "gif"
       ? `GIF${size ? ` · ${size.width}×${size.height}` : ""} · ${options.gifFps} fps · ${GIF_MAX_SECONDS} s max`
       : format === "shorts"
-        ? `MP4 H.264 · ${SHORTS_SIZE.width}×${SHORTS_SIZE.height} · ${fitLabel(options.fit)}${withAudio ? " · AAC stereo" : " · no audio"}${item.hdr.tonemap ? " · SDR" : ""}`
+        ? `MP4 H.264 · ${SHORTS_SIZE.width}×${SHORTS_SIZE.height} · ${fitLabel(options.fit)}${options.trimBars ? " · bars trimmed" : ""}${withAudio ? " · AAC stereo" : " · no audio"}${item.hdr.tonemap ? " · SDR" : ""}`
         : `MP4 H.264${size ? ` · ${size.width}×${size.height}` : ""} · CRF ${options.quality === "high" ? 18 : options.quality === "small" ? 24 : 20}${withAudio ? " · AAC stereo" : " · no audio"}${item.hdr.tonemap ? " · SDR" : ""}`
   const buttonLabel = !selection
     ? "Set in and out first"
@@ -376,17 +386,40 @@ export function ExportButton({
           </>
         )}
         {format === "shorts" && (
-          <Field label="Fit">
-            <Choice
-              value={options.fit}
-              options={[
-                ["blur", "Blur"],
-                ["crop", "Crop"],
-                ["bars", "Bars"],
-              ]}
-              onChange={(fit) => onChange({ fit })}
-            />
-          </Field>
+          <>
+            <Field label="Fit">
+              <Choice
+                value={options.fit}
+                options={[
+                  ["blur", "Blur"],
+                  ["crop", "Crop"],
+                  ["bars", "Bars"],
+                ]}
+                onChange={(fit) => onChange({ fit })}
+              />
+            </Field>
+            <Field label="Trim black bars">
+              <Switch
+                size="sm"
+                checked={options.trimBars}
+                onCheckedChange={(checked) => onChange({ trimBars: checked })}
+                aria-label="Trim black bars"
+              />
+            </Field>
+            {options.fit === "crop" && (
+              <CropPicker
+                item={item}
+                previewUrl={frameUrl(item.id, rangeStart, 640)}
+                focus={options.cropFocus}
+                onChange={(cropFocus) => onChange({ cropFocus })}
+                bars={
+                  options.trimBars
+                    ? ((bars.data ?? null) as BarsResponse | null)
+                    : null
+                }
+              />
+            )}
+          </>
         )}
         {format === "gif" && (
           <>

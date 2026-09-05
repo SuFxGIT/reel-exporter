@@ -46,8 +46,8 @@ RUN chmod +x /entrypoint.sh && mkdir -p /media /output /config
 # Stamped by the GitHub workflow so /api/health can report which build is running.
 ARG GIT_SHA=dev
 ARG BUILD_DATE=
-ENV REEL_VAULT_BUILD=$GIT_SHA \
-    REEL_VAULT_BUILD_DATE=$BUILD_DATE
+ENV REEL_EXPORTER_BUILD=$GIT_SHA \
+    REEL_EXPORTER_BUILD_DATE=$BUILD_DATE
 
 EXPOSE 7727
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \

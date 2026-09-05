@@ -4,9 +4,9 @@ Guidance for Claude Code when working in this repository.
 
 ## What this is
 
-Reel Vault is a small self-hosted, Plex-style video player whose only purpose is taking
+Reel Exporter is a small self-hosted, Plex-style video player whose only purpose is taking
 screenshots and trimming clips from a read-only media library. Docker image
-`ghcr.io/sufxgit/reel-vault`, port **7727**, deployed on the user's Unraid server
+`ghcr.io/sufxgit/reel-exporter`, port **7727**, deployed on the user's Unraid server
 (`/mnt/user/data/media` read-only, captures to `/mnt/user/data/reel-vault`, config in
 `/mnt/user/appdata/reel-vault`).
 
@@ -18,7 +18,7 @@ npm test                                      # vitest: src/__tests__ (naming ru
 npm run typecheck && npm --prefix web run typecheck
 npm --prefix web run build && npm run build   # web/dist then dist/
 docker compose -f docker-compose.dev.yml up   # tsx watch inside Alpine with ffmpeg, real paths mounted
-docker build -t ghcr.io/sufxgit/reel-vault:latest .
+docker build -t ghcr.io/sufxgit/reel-exporter:latest .
 node scripts/unraid-run.mjs --dry-run         # the docker run command Unraid's dockerMan would build
 node scripts/unraid-run.mjs --install-template --recreate   # register template + icon, (re)start the container
 node scripts/smoke-browser.mjs --probe        # headless Chrome codec probe (browserless/chrome container)

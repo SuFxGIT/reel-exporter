@@ -68,18 +68,36 @@ export function previewFilters(probe: ProbeResult): string {
   return parts.join(",")
 }
 
-/** Everything before the final pixel-format step: fixup, deinterlace, downscale, tone-map. */
+/** A rectangle in stored source pixels. */
+export interface Crop {
+  w: number
+  h: number
+  x: number
+  y: number
+}
+
+const cropFilter = (c: Crop): string =>
+  `crop=w=${c.w}:h=${c.h}:x=${c.x}:y=${c.y}`
+
+/** Everything before the final pixel-format step: fixup, deinterlace, crop, downscale, tone-map. */
 function prepFilters(
   probe: ProbeResult,
   deinterlaceMode: "frame" | "field",
-  maxWidth?: number
+  maxWidth?: number,
+  preCrop?: Crop
 ): string[] {
   const parts: string[] = []
   const fix = colorFixup(probe)
   if (fix) parts.push(fix)
   const de = deinterlaceFilter(probe, deinterlaceMode)
   if (de) parts.push(de)
-  if (maxWidth && probe.video && maxWidth < probe.video.displayWidth) {
+  if (preCrop) parts.push(cropFilter(preCrop))
+  const sourceWidth = probe.video
+    ? preCrop
+      ? preCrop.w * (probe.video.sar ?? 1)
+      : probe.video.displayWidth
+    : 0
+  if (maxWidth && probe.video && maxWidth < sourceWidth) {
     // Downscale before tone-mapping: that is where the cost is.
     parts.push(
       `scale=w='min(${maxWidth},iw*sar)':h=-2:flags=lanczos`,
@@ -124,17 +142,32 @@ export const SHORTS_HEIGHT = 1920
  */
 export function shortsPrescaleWidth(
   probe: ProbeResult,
-  fit: ShortsFit
+  fit: ShortsFit,
+  picture?: { width: number; height: number }
 ): number | undefined {
   const v = probe.video
   if (!v || !v.height) return undefined
-  const atHeight = Math.round((SHORTS_HEIGHT * v.displayWidth) / v.height)
-  const box =
+  const width = picture?.width ?? v.displayWidth
+  const height = picture?.height ?? v.height
+  if (!height) return undefined
+  const atHeight = Math.round((SHORTS_HEIGHT * width) / height)
+  const wanted =
     fit === "bars"
       ? Math.min(SHORTS_WIDTH, atHeight)
       : Math.max(SHORTS_WIDTH, atHeight)
-  return box < v.displayWidth ? box : undefined
+  // 4:2:0 output needs even dimensions; round up so nothing is lost.
+  const box = wanted + (wanted % 2)
+  return box < width ? box : undefined
 }
+
+export interface ShortsOptions {
+  /** Picture rectangle without the black bars; applied before scaling. */
+  bars?: Crop
+  /** Where the crop window sits, 0..1 from the left/top; 0.5 is centred. */
+  focus?: { x: number; y: number }
+}
+
+const fraction = (n: number): string => Math.min(1, Math.max(0, n)).toFixed(3)
 
 const W = SHORTS_WIDTH
 const H = SHORTS_HEIGHT
@@ -146,16 +179,35 @@ const SHORTS_FIT: Record<ShortsFit, string> = {
     `[fg]scale=w=${W}:h=${H}:force_original_aspect_ratio=decrease:force_divisible_by=2:flags=lanczos[fgs]`,
     "[bgb][fgs]overlay=x=(W-w)/2:y=(H-h)/2:format=yuv420,format=yuv420p",
   ].join(";"),
-  crop: `scale=w=${W}:h=${H}:force_original_aspect_ratio=increase:flags=lanczos,crop=w=${W}:h=${H}`,
+  crop: "",
   bars: `scale=w=${W}:h=${H}:force_original_aspect_ratio=decrease:force_divisible_by=2:flags=lanczos,pad=w=${W}:h=${H}:x=(ow-iw)/2:y=(oh-ih)/2:color=black`,
 }
 
-/** 9:16 output for Shorts and Reels: fit the picture, then fill the frame. */
-export function shortsFilters(probe: ProbeResult, fit: ShortsFit): string {
+/** Fill the frame, then cut the 9:16 window at the chosen position. */
+const cropFit = (
+  focus: { x: number; y: number } = { x: 0.5, y: 0.5 }
+): string =>
+  `scale=w=${W}:h=${H}:force_original_aspect_ratio=increase:flags=lanczos,crop=w=${W}:h=${H}:x=(iw-${W})*${fraction(focus.x)}:y=(ih-${H})*${fraction(focus.y)}`
+
+/** 9:16 output for Shorts and Reels: drop the bars, fit the picture, fill the frame. */
+export function shortsFilters(
+  probe: ProbeResult,
+  fit: ShortsFit,
+  opts: ShortsOptions = {}
+): string {
+  const sar = probe.video?.sar ?? 1
+  const picture = opts.bars
+    ? { width: opts.bars.w * sar, height: opts.bars.h }
+    : undefined
   return [
-    ...prepFilters(probe, "field", shortsPrescaleWidth(probe, fit)),
+    ...prepFilters(
+      probe,
+      "field",
+      shortsPrescaleWidth(probe, fit, picture),
+      opts.bars
+    ),
     "format=yuv420p",
-    SHORTS_FIT[fit],
+    fit === "crop" ? cropFit(opts.focus) : SHORTS_FIT[fit],
   ].join(",")
 }
 

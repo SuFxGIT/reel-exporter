@@ -93,6 +93,24 @@ export function useBrowse(sourceId: string | null, relPath: string) {
   })
 }
 
+/** Black bars baked into the picture for a range; drives the Shorts crop preview. */
+export function useBars(
+  id: string,
+  start: number,
+  end: number,
+  enabled: boolean
+) {
+  const s = Math.round(start * 2) / 2
+  const e = Math.max(s, Math.round(end * 2) / 2)
+  return useQuery({
+    queryKey: ["bars", id, s, e],
+    queryFn: () => api.bars(id, s, e),
+    enabled,
+    staleTime: 300_000,
+    retry: 1,
+  })
+}
+
 export function useInvalidate() {
   const qc = useQueryClient()
   return {

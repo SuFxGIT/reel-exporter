@@ -34,6 +34,7 @@ import {
   takeScreenshot,
 } from "../media/capture.js"
 import type { CaptureOrderStore } from "../media/capture-order.js"
+import { detectBars } from "../media/bars.js"
 import type { FfmpegCapabilities } from "../media/ffmpeg.js"
 import { renderCaptureThumb, renderFrame } from "../media/frames.js"
 import { HlsError, hlsSessions } from "../media/hls.js"
@@ -245,6 +246,7 @@ export function createApi(deps: ApiDeps): Router {
             aac: caps.aac,
             libwebp: caps.libwebp,
             gif: caps.gif,
+            cropdetect: caps.cropdetect,
           },
         },
         library: {
@@ -685,6 +687,36 @@ export function createApi(deps: ApiDeps): Router {
     })
   )
 
+  // Black bars baked into the picture, for the Shorts crop preview.
+  router.get(
+    "/items/:id/bars",
+    wrap(async (req, res) => {
+      const id = req.params.id as string
+      const { info, probe } = await loadPlayable(id)
+      if (!probe.hasVideo || !probe.video)
+        throw new ApiError(422, "This file has no video stream.", "no_video")
+      const duration = Math.max(0, probe.duration)
+      const start = Math.min(
+        Math.max(0, numberParam(req.query.start, "start", 0)),
+        duration
+      )
+      const end = Math.min(
+        Math.max(start, numberParam(req.query.end, "end", start + 5)),
+        duration
+      )
+      const crop = caps.cropdetect
+        ? await detectBars(info.absPath, probe, start, end)
+        : null
+      res.set("Cache-Control", "private, max-age=300")
+      res.json({
+        crop,
+        width: probe.video.width,
+        height: probe.video.height,
+        sar: probe.video.sar ?? 1,
+      })
+    })
+  )
+
   const clipSchema = z.object({
     start: z.number().min(0),
     end: z.number().min(0),
@@ -694,6 +726,12 @@ export function createApi(deps: ApiDeps): Router {
     format: z.enum(["mp4", "shorts", "gif"]).default("mp4"),
     /** Shorts only: how a widescreen picture fills the 9:16 frame. */
     fit: z.enum(["blur", "crop", "bars"]).default("blur"),
+    /** Shorts only: detect and drop black bars baked into the picture. */
+    trimBars: z.boolean().default(true),
+    /** Shorts crop only: window position, 0..1 from the left and top. */
+    focus: z
+      .object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1) })
+      .optional(),
     /** GIF only. */
     fps: z.number().int().min(5).max(30).default(15),
     width: z.number().int().min(160).max(1280).default(480),
@@ -750,7 +788,13 @@ export function createApi(deps: ApiDeps): Router {
         body.format === "gif"
           ? { ...common, format: "gif", fps: body.fps, width: body.width }
           : body.format === "shorts"
-            ? { ...common, format: "shorts", fit: body.fit }
+            ? {
+                ...common,
+                format: "shorts",
+                fit: body.fit,
+                trimBars: body.trimBars && caps.cropdetect,
+                ...(body.focus ? { focus: body.focus } : {}),
+              }
             : {
                 ...common,
                 format: "mp4",

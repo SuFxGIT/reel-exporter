@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Turns unraid/reel-vault.xml into the `docker run -d` command that Unraid's
+ * Turns unraid/reel-exporter.xml into the `docker run -d` command that Unraid's
  * dockerMan generates (dynamix.docker.manager Helpers.php: xmlToCommand), and can
  * register the template and icon so the container shows up in the Docker tab like a
  * UI-created one (icon, Edit, WebUI link, autostart).
@@ -12,7 +12,7 @@
  *   node scripts/unraid-run.mjs --set /media=/mnt/user/media --set 7727=7727 --autostart
  *
  * Options
- *   --xml <file>        template (default: unraid/reel-vault.xml)
+ *   --xml <file>        template (default: unraid/reel-exporter.xml)
  *   --image <ref>       override the image (e.g. a locally built tag)
  *   --set TARGET=VALUE  override a <Config> by its Target (container path, container port or variable name)
  *   --install-template  write /boot/config/plugins/dockerMan/templates-user/my-<Name>.xml with the
@@ -41,7 +41,7 @@ import { fileURLToPath } from "node:url"
 const here = dirname(fileURLToPath(import.meta.url))
 const argv = process.argv.slice(2)
 const opt = {
-  xml: resolve(here, "../unraid/reel-vault.xml"),
+  xml: resolve(here, "../unraid/reel-exporter.xml"),
   icon: resolve(here, "../unraid/icon.png"),
   set: [],
   image: null,

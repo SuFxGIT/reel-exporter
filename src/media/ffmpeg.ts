@@ -250,6 +250,7 @@ export interface FfmpegCapabilities {
   aac: boolean
   libwebp: boolean
   gif: boolean
+  cropdetect: boolean
 }
 
 export async function detectCapabilities(): Promise<FfmpegCapabilities> {
@@ -288,5 +289,6 @@ export async function detectCapabilities(): Promise<FfmpegCapabilities> {
     libwebp: hasEncoder("libwebp"),
     gif:
       hasEncoder("gif") && hasFilter("palettegen") && hasFilter("paletteuse"),
+    cropdetect: hasFilter("cropdetect"),
   }
 }

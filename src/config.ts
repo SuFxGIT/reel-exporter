@@ -19,8 +19,8 @@ const envSchema = z.object({
   FFMPEG_PATH: z.string().default("ffmpeg"),
   FFPROBE_PATH: z.string().default("ffprobe"),
   NODE_ENV: z.string().default("development"),
-  REEL_VAULT_BUILD: z.string().default("dev"),
-  REEL_VAULT_BUILD_DATE: z.string().default(""),
+  REEL_EXPORTER_BUILD: z.string().default("dev"),
+  REEL_EXPORTER_BUILD_DATE: z.string().default(""),
 })
 
 const parsed = envSchema.safeParse(process.env)
@@ -47,7 +47,7 @@ export const config = {
     ? path.resolve(env.TRANSCODE_PATH)
     : path.join(path.resolve(env.CONFIG_PATH), "transcode"),
   transcodeDirExplicit: Boolean(env.TRANSCODE_PATH),
-  tmpRoot: path.join(os.tmpdir(), "reel-vault"),
+  tmpRoot: path.join(os.tmpdir(), "reel-exporter"),
   logLevel: env.LOG_LEVEL,
   scanIntervalMinutes: env.SCAN_INTERVAL_MINUTES,
   legacySkipDirs: env.SKIP_DIRS
@@ -62,8 +62,8 @@ export const config = {
   ffmpegPath: env.FFMPEG_PATH,
   ffprobePath: env.FFPROBE_PATH,
   isProduction: env.NODE_ENV === "production",
-  build: env.REEL_VAULT_BUILD,
-  buildDate: env.REEL_VAULT_BUILD_DATE,
+  build: env.REEL_EXPORTER_BUILD,
+  buildDate: env.REEL_EXPORTER_BUILD_DATE,
   version: "0.1.0",
 }
 

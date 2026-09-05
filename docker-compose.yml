@@ -1,15 +1,15 @@
 services:
-  reel-vault:
+  reel-exporter:
     build: .
-    image: ghcr.io/sufxgit/reel-vault:latest
-    container_name: reel-vault
+    image: ghcr.io/sufxgit/reel-exporter:latest
+    container_name: reel-exporter
     ports:
       - "7727:7727"
     volumes:
       - /mnt/user/data/media:/media:ro       # your library; never written to (pick folders under Sources in the app)
       # - /mnt/user/other/videos:/media2:ro  # any number of extra read-only sources
-      - /mnt/user/data/reel-vault:/output    # screenshots and clips land here
-      - /mnt/user/appdata/reel-vault:/config # index, caches and transcode segments
+      - /mnt/user/data/reel-exporter:/output    # screenshots and clips land here
+      - /mnt/user/appdata/reel-exporter:/config # index, caches and transcode segments
     environment:
       PUID: "99"
       PGID: "100"

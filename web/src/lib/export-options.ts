@@ -28,6 +28,10 @@ export interface ClipOptions {
   audio: boolean
   /** Shorts: how a widescreen picture fills the 9:16 frame. */
   fit: ShortsFit
+  /** Shorts: detect and drop black bars baked into the picture. */
+  trimBars: boolean
+  /** Shorts crop: where the 9:16 window sits, 0..1 from the left and top. */
+  cropFocus: { x: number; y: number }
   gifWidth: GifWidth
   gifFps: GifFps
 }
@@ -44,12 +48,14 @@ export const defaultClipOptions: ClipOptions = {
   quality: "balanced",
   audio: true,
   fit: "blur",
+  trimBars: true,
+  cropFocus: { x: 0.5, y: 0.5 },
   gifWidth: 480,
   gifFps: 15,
 }
 
-const SCREENSHOT_KEY = "reel-vault:screenshot-options"
-const CLIP_KEY = "reel-vault:clip-options"
+const SCREENSHOT_KEY = "reel-exporter:screenshot-options"
+const CLIP_KEY = "reel-exporter:clip-options"
 
 /** Width limit sent to the server for a size preset; undefined means source resolution. */
 export function maxWidthFor(
@@ -85,7 +91,10 @@ export function sizeLabel(size: SizePreset, customWidth?: number): string {
 
 function load<T extends object>(key: string, fallback: T): T {
   try {
-    const raw = localStorage.getItem(key)
+    // Settings saved under the old product name are picked up once.
+    const raw =
+      localStorage.getItem(key) ??
+      localStorage.getItem(key.replace("reel-exporter:", "reel-vault:"))
     if (!raw) return fallback
     const parsed = JSON.parse(raw) as Partial<T>
     return { ...fallback, ...parsed }

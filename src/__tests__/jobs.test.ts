@@ -46,13 +46,36 @@ describe("exportArgs", () => {
     const a = exportArgs(
       "/m/a.mkv",
       probe(),
-      { ...base, format: "shorts", fit: "bars", audio: -1 },
+      { ...base, format: "shorts", fit: "bars", trimBars: false, audio: -1 },
       "/o/x.tmp.mp4"
     )
     expect(at(a, "-vf")).toContain("pad=w=1080:h=1920")
     expect(at(a, "-f")).toBe("mp4")
     expect(a).not.toContain("-c:a")
     expect(a).not.toContain("0:a:0")
+  })
+
+  it("drops detected bars before the fit and honours the crop focus", () => {
+    const a = exportArgs(
+      "/m/a.mkv",
+      probe(),
+      {
+        ...base,
+        format: "shorts",
+        fit: "crop",
+        trimBars: true,
+        focus: { x: 0.25, y: 0.5 },
+        audio: -1,
+      },
+      "/o/x.tmp.mp4",
+      1,
+      { bars: { w: 1920, h: 800, x: 0, y: 140 } }
+    )
+    const vf = at(a, "-vf")
+    expect(vf.indexOf("crop=w=1920:h=800:x=0:y=140")).toBeLessThan(
+      vf.indexOf("scale=w=1080")
+    )
+    expect(vf.endsWith("x=(iw-1080)*0.250:y=(ih-1920)*0.500")).toBe(true)
   })
 
   it("builds a two-pass GIF without audio", () => {

@@ -25,15 +25,15 @@ fi
 # Group: reuse an existing name for PGID (GID 100 is 'users' on Alpine), else create one.
 GROUP_NAME="$(awk -F: -v g="$PGID" '$3==g{print $1; exit}' /etc/group || true)"
 if [ -z "$GROUP_NAME" ]; then
-  addgroup -g "$PGID" reelvault
-  GROUP_NAME=reelvault
+  addgroup -g "$PGID" reelexporter
+  GROUP_NAME=reelexporter
 fi
 
 # User: UID 99 does not exist on Alpine (nobody is 65534); create it if needed.
 USER_NAME="$(awk -F: -v u="$PUID" '$3==u{print $1; exit}' /etc/passwd || true)"
 if [ -z "$USER_NAME" ]; then
-  adduser -D -H -u "$PUID" -G "$GROUP_NAME" -s /sbin/nologin reelvault
-  USER_NAME=reelvault
+  adduser -D -H -u "$PUID" -G "$GROUP_NAME" -s /sbin/nologin reelexporter
+  USER_NAME=reelexporter
 fi
 log "running as $USER_NAME($PUID):$GROUP_NAME($PGID) umask=$UMASK"
 

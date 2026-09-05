@@ -81,8 +81,9 @@ const hdr = probe(
 
 describe("shortsPrescaleWidth", () => {
   it("downscales to the box the fit needs, never upscales", () => {
-    expect(shortsPrescaleWidth(sdr(3840, 2160), "blur")).toBe(3413)
-    expect(shortsPrescaleWidth(sdr(3840, 2160), "crop")).toBe(3413)
+    // 3413 rounded up to an even width for 4:2:0 output.
+    expect(shortsPrescaleWidth(sdr(3840, 2160), "blur")).toBe(3414)
+    expect(shortsPrescaleWidth(sdr(3840, 2160), "crop")).toBe(3414)
     expect(shortsPrescaleWidth(sdr(3840, 2160), "bars")).toBe(1080)
     expect(shortsPrescaleWidth(sdr(1920, 1080), "bars")).toBe(1080)
     expect(shortsPrescaleWidth(sdr(1920, 1080), "blur")).toBeUndefined()
@@ -104,7 +105,9 @@ describe("shortsFilters", () => {
     ).toBe(true)
     const crop = shortsFilters(hdr, "crop")
     expect(crop.indexOf("tonemap=")).toBeLessThan(crop.indexOf("crop=w=1080"))
-    expect(crop.endsWith("crop=w=1080:h=1920")).toBe(true)
+    expect(
+      crop.endsWith("crop=w=1080:h=1920:x=(iw-1080)*0.500:y=(ih-1920)*0.500")
+    ).toBe(true)
     const bars = shortsFilters(sdr(1920, 1080), "bars")
     expect(
       bars.endsWith("pad=w=1080:h=1920:x=(ow-iw)/2:y=(oh-ih)/2:color=black")
@@ -122,5 +125,36 @@ describe("gifFilters", () => {
     expect(gifFilters(hdr, { fps: 10, width: 320 })).toContain(
       "fps=10,scale=w='min(320,iw*sar)':h=-2:flags=lanczos,setsar=1,zscale="
     )
+  })
+})
+
+describe("shortsFilters with bars and a focus", () => {
+  const boxed = sdr(3840, 2160)
+  const bars = { w: 3840, h: 1608, x: 0, y: 276 }
+
+  it("crops the bars before scaling and sizes the downscale to the picture", () => {
+    const s = shortsFilters(boxed, "bars", { bars })
+    const cropAt = s.indexOf("crop=w=3840:h=1608:x=0:y=276")
+    expect(cropAt).toBeGreaterThan(-1)
+    expect(cropAt).toBeLessThan(s.indexOf("scale="))
+    // Picture is 3840x1608: at 1920 tall it would be 4585 wide, so bars fit 1080 wide.
+    expect(s).toContain("scale=w='min(1080,iw*sar)':h=-2:flags=lanczos")
+    expect(
+      shortsPrescaleWidth(boxed, "blur", { width: 3840, height: 1608 })
+    ).toBe(undefined)
+  })
+
+  it("places the crop window where the focus says", () => {
+    const left = shortsFilters(boxed, "crop", { focus: { x: 0, y: 0.5 } })
+    expect(left.endsWith("x=(iw-1080)*0.000:y=(ih-1920)*0.500")).toBe(true)
+    const right = shortsFilters(boxed, "crop", {
+      bars,
+      focus: { x: 1, y: 0.5 },
+    })
+    expect(right.endsWith("x=(iw-1080)*1.000:y=(ih-1920)*0.500")).toBe(true)
+    expect(right).toContain("crop=w=3840:h=1608:x=0:y=276")
+    expect(
+      shortsFilters(boxed, "blur", { focus: { x: 0, y: 0 } })
+    ).not.toContain("*0.000")
   })
 })

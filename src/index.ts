@@ -62,7 +62,7 @@ async function prepareDirs(): Promise<Runtime> {
 async function main(): Promise<void> {
   logger.info(
     { version: config.version, build: config.build, node: process.version },
-    "Reel Vault starting"
+    "Reel Exporter starting"
   )
   const runtime = await prepareDirs()
   await cleanTranscodeDir()
@@ -76,6 +76,7 @@ async function main(): Promise<void> {
       libx264: caps.libx264,
       libwebp: caps.libwebp,
       gif: caps.gif,
+      cropdetect: caps.cropdetect,
     },
     "ffmpeg ready"
   )

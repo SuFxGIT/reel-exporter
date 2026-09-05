@@ -191,6 +191,14 @@ export interface Job {
   error?: string
 }
 
+export interface BarsResponse {
+  /** Picture rectangle without black bars, in stored source pixels; null when there are none. */
+  crop: { w: number; h: number; x: number; y: number } | null
+  width: number
+  height: number
+  sar: number
+}
+
 export interface CapturesResponse {
   captures: Capture[]
   jobs: Job[]
@@ -285,6 +293,8 @@ export const api = {
       quality?: "high" | "balanced" | "small"
       maxWidth?: number
       fit?: "blur" | "crop" | "bars"
+      trimBars?: boolean
+      focus?: { x: number; y: number }
       fps?: number
       width?: number
     }
@@ -294,6 +304,10 @@ export const api = {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ start, end, audio, ...opts }),
     }),
+  bars: (id: string, start: number, end: number) =>
+    request<BarsResponse>(
+      `/api/items/${id}/bars?start=${start.toFixed(1)}&end=${end.toFixed(1)}`
+    ),
   captures: (id: string) =>
     request<CapturesResponse>(`/api/items/${id}/captures`),
   deleteCapture: (capture: { url: string }) =>
