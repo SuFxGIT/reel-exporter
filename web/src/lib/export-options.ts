@@ -28,8 +28,6 @@ export interface ClipOptions {
   audio: boolean
   /** Shorts: how a widescreen picture fills the 9:16 frame. */
   fit: ShortsFit
-  /** Shorts: detect and drop black bars baked into the picture. */
-  trimBars: boolean
   /** Shorts crop: where the 9:16 window sits, 0..1 from the left and top. */
   cropFocus: { x: number; y: number }
   gifWidth: GifWidth
@@ -48,7 +46,6 @@ export const defaultClipOptions: ClipOptions = {
   quality: "balanced",
   audio: true,
   fit: "blur",
-  trimBars: true,
   cropFocus: { x: 0.5, y: 0.5 },
   gifWidth: 480,
   gifFps: 15,

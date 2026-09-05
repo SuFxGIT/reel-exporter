@@ -301,7 +301,7 @@ export function ExportButton({
     item.id,
     rangeStart,
     rangeEnd,
-    format === "shorts" && options.fit === "crop" && options.trimBars
+    format === "shorts" && options.fit === "crop"
   )
   const size =
     format === "shorts"
@@ -330,7 +330,7 @@ export function ExportButton({
     format === "gif"
       ? `GIF${size ? ` · ${size.width}×${size.height}` : ""} · ${options.gifFps} fps · ${GIF_MAX_SECONDS} s max`
       : format === "shorts"
-        ? `MP4 H.264 · ${SHORTS_SIZE.width}×${SHORTS_SIZE.height} · ${fitLabel(options.fit)}${options.trimBars ? " · bars trimmed" : ""}${withAudio ? " · AAC stereo" : " · no audio"}${item.hdr.tonemap ? " · SDR" : ""}`
+        ? `MP4 H.264 · ${SHORTS_SIZE.width}×${SHORTS_SIZE.height} · ${fitLabel(options.fit)} · bars trimmed${withAudio ? " · AAC stereo" : " · no audio"}${item.hdr.tonemap ? " · SDR" : ""}`
         : `MP4 H.264${size ? ` · ${size.width}×${size.height}` : ""} · CRF ${options.quality === "high" ? 18 : options.quality === "small" ? 24 : 20}${withAudio ? " · AAC stereo" : " · no audio"}${item.hdr.tonemap ? " · SDR" : ""}`
   const buttonLabel = !selection
     ? "Set in and out first"
@@ -398,25 +398,13 @@ export function ExportButton({
                 onChange={(fit) => onChange({ fit })}
               />
             </Field>
-            <Field label="Trim black bars">
-              <Switch
-                size="sm"
-                checked={options.trimBars}
-                onCheckedChange={(checked) => onChange({ trimBars: checked })}
-                aria-label="Trim black bars"
-              />
-            </Field>
             {options.fit === "crop" && (
               <CropPicker
                 item={item}
                 previewUrl={frameUrl(item.id, rangeStart, 640)}
                 focus={options.cropFocus}
                 onChange={(cropFocus) => onChange({ cropFocus })}
-                bars={
-                  options.trimBars
-                    ? ((bars.data ?? null) as BarsResponse | null)
-                    : null
-                }
+                bars={(bars.data ?? null) as BarsResponse | null}
               />
             )}
           </>

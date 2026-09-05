@@ -107,7 +107,7 @@ The small arrow next to **Screenshot** and **Export** opens the options for that
 | Size (MP4) | Source, 1080p or 720p |
 | Quality (MP4) | High (CRF 18), Balanced (CRF 20) or Small (CRF 24, faster) |
 | Fit (Shorts) | Blur (picture centred over a blurred copy), Crop (fill the frame; drag the 9:16 window over the preview to choose what stays) or Bars (black letterbox) |
-| Trim black bars (Shorts) | On by default: bars baked into the picture are detected with ffmpeg's `cropdetect` on a few frames of the range and left out of the export |
+| Black bars (Shorts) | Always trimmed: bars baked into the picture are detected with ffmpeg's `cropdetect` on a few frames of the range and left out of the export (pass `"trimBars":false` to the API to keep them) |
 | Width and frame rate (GIF) | 320, 480 or 640 px wide at 10, 15 or 20 fps; GIFs are limited to 30 seconds |
 | Audio (MP4, Shorts) | The track selected in the header, or none |
 

@@ -293,7 +293,6 @@ export const api = {
       quality?: "high" | "balanced" | "small"
       maxWidth?: number
       fit?: "blur" | "crop" | "bars"
-      trimBars?: boolean
       focus?: { x: number; y: number }
       fps?: number
       width?: number
