@@ -3,6 +3,7 @@ import { Clapperboard, X } from "lucide-react"
 import { Toaster } from "sonner"
 import { Sidebar } from "@/components/sidebar/Sidebar"
 import { Player } from "@/components/player/Player"
+import { SupportLinks } from "@/components/player/SupportLinks"
 import { TooltipProvider } from "@/components/ui/tooltip"
 import { Button } from "@/components/ui/button"
 import { useHashRoute } from "@/lib/hash-route"
@@ -53,7 +54,10 @@ export default function App() {
             </Button>
           </div>
         )}
-        <main className="flex min-w-0 flex-1 flex-col">
+        <main className="relative flex min-w-0 flex-1 flex-col">
+          {!item.data && (
+            <SupportLinks className="absolute top-2 right-2 flex items-center" />
+          )}
           {item.data ? (
             <Player
               key={item.data.id}

@@ -19,6 +19,6 @@ services:
     volumes:
       - .:/app
       - /mnt/user/data/media:/media:ro
-      - /mnt/user/data/torrents:/media2:ro
+      # - /mnt/user/other/videos:/media2:ro   # any extra read-only source
       - ./data/output:/output
       - ./data/config:/config

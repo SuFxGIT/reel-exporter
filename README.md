@@ -149,6 +149,10 @@ node scripts/smoke-browser.mjs --probe    # headless Chrome playback check (see 
 
 The server is Node 24 and Express 5 in TypeScript; the web app is React 19, Vite, Tailwind CSS 4 and shadcn/ui, with hls.js for playback and wavesurfer.js for the timeline. ffmpeg comes from Alpine 3.24.
 
+## Support
+
+If Reel Exporter saves you time, you can [buy me a coffee](https://buymeacoffee.com/sufx).
+
 ## License
 
 MIT

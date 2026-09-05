@@ -5,6 +5,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { AudioSelect } from "./AudioSelect"
 import { ShortcutsHelp } from "./ShortcutsHelp"
+import { SupportLinks } from "./SupportLinks"
 
 interface Props {
   item: ItemDetail
@@ -81,6 +82,7 @@ export function Header({ item, audio, onAudioChange, onToggleSidebar }: Props) {
         />
       )}
       <ShortcutsHelp />
+      <SupportLinks className="flex items-center" />
     </header>
   )
 }

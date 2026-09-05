@@ -13,7 +13,7 @@ services:
     environment:
       PUID: "99"
       PGID: "100"
-      TZ: Asia/Riyadh
+      TZ: Europe/London
       # LOG_LEVEL: info
       # SCAN_INTERVAL_MINUTES: "60"
     restart: unless-stopped

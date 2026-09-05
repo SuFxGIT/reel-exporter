@@ -9,7 +9,7 @@
  *   node scripts/smoke-browser.mjs --setup-source "movies 4k"   # add the first suggested mount and tick a folder
  *   node scripts/smoke-browser.mjs --item <id> --out docs/screenshot.png
  *
- * Options: --app http://192.168.8.25:7727  --browserless http://127.0.0.1:3939
+ * Options: --app http://127.0.0.1:7727  --browserless http://127.0.0.1:3939
  *          --item <id>  --play 3  --seek 600  --out docs/screenshot.png  --probe
  *          --setup-source <folder name>  [--dialog-out docs/sources.png]
  */
@@ -22,7 +22,7 @@ const get = (k, d) => {
   return i >= 0 ? argv[i + 1] : d
 }
 const opt = {
-  app: get("--app", "http://192.168.8.25:7727"),
+  app: get("--app", "http://127.0.0.1:7727"),
   browserless: get("--browserless", "http://127.0.0.1:3939"),
   item: get("--item"),
   play: Number(get("--play", "3")),
