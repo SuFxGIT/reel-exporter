@@ -8,8 +8,14 @@ export interface Focus {
   y: number
 }
 
+export const MIN_CROP_ZOOM = 1
+export const MAX_CROP_ZOOM = 3
+const ZOOM_STEP = 0.1
+
 const OUT_ASPECT = 9 / 16
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n))
+export const clampZoom = (z: number) =>
+  Math.min(MAX_CROP_ZOOM, Math.max(MIN_CROP_ZOOM, Math.round(z * 100) / 100))
 
 interface Rect {
   x: number
@@ -20,21 +26,32 @@ interface Rect {
 
 /**
  * Where the 9:16 window sits over a frame: the largest 9:16 box that fits the
- * picture (the frame minus detected bars), moved by `focus` (0..1).
+ * picture (the frame minus detected bars), shrunk by `zoom` and moved by
+ * `focus` (0..1).
  */
 export function layoutWindow(
   picture: Rect,
-  focus: Focus
-): { win: Rect; axis: "x" | "y" | null } {
+  focus: Focus,
+  zoom = 1
+): { win: Rect; axis: "x" | "y" | "both" | null } {
+  const z = clampZoom(zoom)
   const wide = picture.w / picture.h > OUT_ASPECT
   const win: Rect = wide
-    ? { x: 0, y: picture.y, w: picture.h * OUT_ASPECT, h: picture.h }
-    : { x: picture.x, y: 0, w: picture.w, h: picture.w / OUT_ASPECT }
+    ? { x: 0, y: 0, w: (picture.h * OUT_ASPECT) / z, h: picture.h / z }
+    : { x: 0, y: 0, w: picture.w / z, h: picture.w / OUT_ASPECT / z }
   const slackX = picture.w - win.w
   const slackY = picture.h - win.h
   win.x = picture.x + slackX * clamp01(focus.x)
   win.y = picture.y + slackY * clamp01(focus.y)
-  return { win, axis: slackX > 1 ? "x" : slackY > 1 ? "y" : null }
+  const axis =
+    slackX > 1 && slackY > 1
+      ? "both"
+      : slackX > 1
+        ? "x"
+        : slackY > 1
+          ? "y"
+          : null
+  return { win, axis }
 }
 
 export function CropPicker({
@@ -42,12 +59,16 @@ export function CropPicker({
   previewUrl,
   focus,
   onChange,
+  zoom,
+  onZoomChange,
   bars,
 }: {
   item: ItemDetail
   previewUrl: string
   focus: Focus
   onChange: (focus: Focus) => void
+  zoom: number
+  onZoomChange: (zoom: number) => void
   /** Bar detection for the range; null when trimming is off or nothing was found. */
   bars: BarsResponse | null
 }) {
@@ -65,6 +86,19 @@ export function CropPicker({
     return () => ro.disconnect()
   }, [])
 
+  // React attaches wheel listeners passively, so preventDefault needs a native one.
+  useEffect(() => {
+    const el = box.current
+    if (!el) return
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault()
+      const dir = e.deltaY < 0 ? 1 : e.deltaY > 0 ? -1 : 0
+      if (dir) onZoomChange(clampZoom(zoom + dir * ZOOM_STEP))
+    }
+    el.addEventListener("wheel", onWheel, { passive: false })
+    return () => el.removeEventListener("wheel", onWheel)
+  }, [zoom, onZoomChange])
+
   const v = item.video
   if (!v) return null
   const scale = width / v.displayWidth
@@ -80,7 +114,7 @@ export function CropPicker({
         h: crop.h * scale,
       }
     : frame
-  const { win, axis } = layoutWindow(picture, focus)
+  const { win, axis } = layoutWindow(picture, focus, zoom)
 
   const place = useCallback(
     (clientX: number, clientY: number) => {
@@ -102,6 +136,7 @@ export function CropPicker({
   const nudge = (dx: number, dy: number) =>
     onChange({ x: clamp01(focus.x + dx), y: clamp01(focus.y + dy) })
 
+  const atDefault = focus.x === 0.5 && focus.y === 0.5 && zoom === 1
   const shade = "bg-black/70 absolute"
   return (
     <div className="flex flex-col gap-1.5">
@@ -129,16 +164,21 @@ export function CropPicker({
           else if (e.key === "ArrowRight") nudge(0.02, 0)
           else if (e.key === "ArrowUp") nudge(0, -0.02)
           else if (e.key === "ArrowDown") nudge(0, 0.02)
+          else if (e.key === "+" || e.key === "=")
+            onZoomChange(clampZoom(zoom + ZOOM_STEP))
+          else if (e.key === "-") onZoomChange(clampZoom(zoom - ZOOM_STEP))
           else return
           e.preventDefault()
         }}
         className={cn(
           "focus-visible:ring-ring relative w-full touch-none overflow-hidden rounded-md bg-black outline-none select-none focus-visible:ring-2",
-          axis === "x"
-            ? "cursor-ew-resize"
-            : axis === "y"
-              ? "cursor-ns-resize"
-              : "cursor-default"
+          axis === "both"
+            ? "cursor-move"
+            : axis === "x"
+              ? "cursor-ew-resize"
+              : axis === "y"
+                ? "cursor-ns-resize"
+                : "cursor-default"
         )}
         style={{ height }}
       >
@@ -196,19 +236,22 @@ export function CropPicker({
       </div>
       <div className="text-muted-foreground flex items-center justify-between text-[11px]">
         <span>
-          {axis === null
-            ? "The picture already fits 9:16"
+          {axis === null && zoom === 1
+            ? "The picture already fits 9:16. Zoom to crop tighter."
             : crop
-              ? "Drag to choose the crop. Black bars are left out."
-              : "Drag to choose the crop"}
+              ? "Drag to move, scroll to zoom. Black bars are left out."
+              : "Drag to move, scroll to zoom"}
         </span>
         <Button
           variant="ghost"
           size="xs"
-          onClick={() => onChange({ x: 0.5, y: 0.5 })}
-          disabled={focus.x === 0.5 && focus.y === 0.5}
+          onClick={() => {
+            onChange({ x: 0.5, y: 0.5 })
+            onZoomChange(1)
+          }}
+          disabled={atDefault}
         >
-          Center
+          Reset
         </Button>
       </div>
     </div>

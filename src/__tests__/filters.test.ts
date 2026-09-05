@@ -157,4 +157,34 @@ describe("shortsFilters with bars and a focus", () => {
       shortsFilters(boxed, "blur", { focus: { x: 0, y: 0 } })
     ).not.toContain("*0.000")
   })
+
+  it("zooms by filling past the frame and keeps the 1080x1920 crop", () => {
+    const zoomed = shortsFilters(boxed, "crop", {
+      bars,
+      focus: { x: 0.25, y: 0.5 },
+      zoom: 2,
+    })
+    expect(zoomed).toContain(
+      "scale=w=2160:h=3840:force_original_aspect_ratio=increase:flags=lanczos,crop=w=1080:h=1920:x=(iw-1080)*0.250:y=(ih-1920)*0.500"
+    )
+    // 3840x1608 at 1920 tall is 4585 wide; the picture is smaller so it is not prescaled.
+    expect(zoomed).not.toContain("scale=w='min(")
+    expect(
+      shortsPrescaleWidth(sdr(3840, 2160), "crop", undefined, 2)
+    ).toBeUndefined()
+    // 4K at zoom 1 prescales to 3414; zoom 1.05 needs 3584.
+    expect(shortsPrescaleWidth(sdr(3840, 2160), "crop", undefined, 1.05)).toBe(
+      3584
+    )
+    // Out-of-range zoom is clamped, and 1 is byte-identical to no zoom.
+    expect(shortsFilters(boxed, "crop", { zoom: 1 })).toBe(
+      shortsFilters(boxed, "crop")
+    )
+    expect(shortsFilters(boxed, "crop", { zoom: 0.5 })).toBe(
+      shortsFilters(boxed, "crop")
+    )
+    expect(shortsFilters(boxed, "crop", { zoom: 99 })).toContain(
+      "scale=w=4320:h=7680:"
+    )
+  })
 })

@@ -78,6 +78,30 @@ describe("exportArgs", () => {
     expect(vf.endsWith("x=(iw-1080)*0.250:y=(ih-1920)*0.500")).toBe(true)
   })
 
+  it("passes the crop zoom through to the fill scale", () => {
+    const a = exportArgs(
+      "/m/a.mkv",
+      probe(),
+      {
+        ...base,
+        format: "shorts",
+        fit: "crop",
+        trimBars: false,
+        focus: { x: 0.5, y: 0.5 },
+        zoom: 1.5,
+        audio: -1,
+      },
+      "/o/x.tmp.mp4"
+    )
+    const vf = at(a, "-vf")
+    expect(vf).toContain(
+      "scale=w=1620:h=2880:force_original_aspect_ratio=increase"
+    )
+    expect(
+      vf.endsWith("crop=w=1080:h=1920:x=(iw-1080)*0.500:y=(ih-1920)*0.500")
+    ).toBe(true)
+  })
+
   it("builds a two-pass GIF without audio", () => {
     const p = {
       ...base,

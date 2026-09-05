@@ -68,14 +68,12 @@ function IconButton({
   disabled,
   children,
   className,
-  active,
 }: {
   label: string
   onClick: () => void
   disabled?: boolean
   children: React.ReactNode
   className?: string
-  active?: boolean
 }) {
   return (
     <Tooltip>
@@ -90,7 +88,42 @@ function IconButton({
             }}
             disabled={disabled}
             aria-label={label}
-            className={cn(className, active && "bg-primary/15 text-primary")}
+            className={className}
+          />
+        }
+      >
+        {children}
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  )
+}
+
+/** A small outlined text button for the in and out marks. */
+function MarkButton({
+  label,
+  onClick,
+  children,
+  className,
+}: {
+  label: string
+  onClick: () => void
+  children: React.ReactNode
+  className?: string
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={(e) => {
+              onClick()
+              ;(e.currentTarget as HTMLElement).blur()
+            }}
+            aria-label={label}
+            className={cn("min-w-10 px-2 text-xs font-medium", className)}
           />
         }
       >
@@ -180,34 +213,36 @@ export function ControlBar({
 
       <div className="bg-border mx-1 h-5 w-px" />
 
-      <IconButton
-        label="Set in point (I)"
-        onClick={actions.setIn}
-        active={selection !== null}
-      >
-        <span className="text-[11px] font-semibold">IN</span>
-      </IconButton>
-      <IconButton
-        label="Set out point (O)"
-        onClick={actions.setOut}
-        active={selection !== null}
-      >
-        <span className="text-[11px] font-semibold">OUT</span>
-      </IconButton>
-      {selection && (
-        <>
-          <span className="tnum text-muted-foreground hidden text-[11px] lg:inline">
-            {formatTime(selection.start)} → {formatTime(selection.end)}
-          </span>
-          <IconButton
-            label="Clear selection (Backspace)"
-            onClick={actions.clearSelection}
+      <div className="flex items-center gap-1.5">
+        <div className="flex -space-x-px">
+          <MarkButton
+            label="Set in point (I)"
+            onClick={actions.setIn}
+            className="rounded-r-none"
           >
-            <X />
-          </IconButton>
-        </>
-      )}
-      <div className="ml-1">
+            In
+          </MarkButton>
+          <MarkButton
+            label="Set out point (O)"
+            onClick={actions.setOut}
+            className="rounded-l-none"
+          >
+            Out
+          </MarkButton>
+        </div>
+        {selection && (
+          <div className="flex items-center gap-0.5">
+            <span className="tnum text-muted-foreground hidden text-[11px] lg:inline">
+              {formatTime(selection.start)} → {formatTime(selection.end)}
+            </span>
+            <IconButton
+              label="Clear selection (Backspace)"
+              onClick={actions.clearSelection}
+            >
+              <X />
+            </IconButton>
+          </div>
+        )}
         <ExportButton
           item={item}
           options={exportOptions.clip}

@@ -30,6 +30,8 @@ export interface ClipOptions {
   fit: ShortsFit
   /** Shorts crop: where the 9:16 window sits, 0..1 from the left and top. */
   cropFocus: { x: number; y: number }
+  /** Shorts crop: how much tighter than the widest 9:16 window; 1 is the whole picture. */
+  cropZoom: number
   gifWidth: GifWidth
   gifFps: GifFps
 }
@@ -47,6 +49,7 @@ export const defaultClipOptions: ClipOptions = {
   audio: true,
   fit: "blur",
   cropFocus: { x: 0.5, y: 0.5 },
+  cropZoom: 1,
   gifWidth: 480,
   gifFps: 15,
 }

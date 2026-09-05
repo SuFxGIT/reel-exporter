@@ -294,6 +294,7 @@ export const api = {
       maxWidth?: number
       fit?: "blur" | "crop" | "bars"
       focus?: { x: number; y: number }
+      zoom?: number
       fps?: number
       width?: number
     }

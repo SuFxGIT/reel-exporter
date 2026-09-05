@@ -64,6 +64,8 @@ export type ExportParams =
       trimBars: boolean
       /** Crop fit only: window position, 0..1 from the left/top. */
       focus?: { x: number; y: number }
+      /** Crop fit only: how much tighter than the widest 9:16 window; 1 is the whole picture. */
+      zoom?: number
     })
   | (ExportBase & { format: "gif"; fps: number; width: number })
 
@@ -246,6 +248,7 @@ export function exportArgs(
         shortsFilters(probe, params.fit, {
           ...(extra.bars ? { bars: extra.bars } : {}),
           ...(params.focus ? { focus: params.focus } : {}),
+          ...(params.zoom ? { zoom: params.zoom } : {}),
         }),
         ...x264Args(probe, params.quality)
       )

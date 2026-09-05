@@ -1,7 +1,12 @@
 import { Camera, ChevronDown, Loader2, Scissors } from "lucide-react"
 import { frameUrl, type BarsResponse, type ItemDetail } from "@/lib/api"
 import { useBars } from "@/lib/queries"
-import { CropPicker } from "./CropPicker"
+import {
+  CropPicker,
+  MAX_CROP_ZOOM,
+  MIN_CROP_ZOOM,
+  clampZoom,
+} from "./CropPicker"
 import {
   GIF_MAX_SECONDS,
   maxWidthFor,
@@ -330,7 +335,7 @@ export function ExportButton({
     format === "gif"
       ? `GIF${size ? ` · ${size.width}×${size.height}` : ""} · ${options.gifFps} fps · ${GIF_MAX_SECONDS} s max`
       : format === "shorts"
-        ? `MP4 H.264 · ${SHORTS_SIZE.width}×${SHORTS_SIZE.height} · ${fitLabel(options.fit)} · bars trimmed${withAudio ? " · AAC stereo" : " · no audio"}${item.hdr.tonemap ? " · SDR" : ""}`
+        ? `MP4 H.264 · ${SHORTS_SIZE.width}×${SHORTS_SIZE.height} · ${fitLabel(options.fit)}${options.fit === "crop" && options.cropZoom !== 1 ? ` ${options.cropZoom.toFixed(2)}×` : ""} · bars trimmed${withAudio ? " · AAC stereo" : " · no audio"}${item.hdr.tonemap ? " · SDR" : ""}`
         : `MP4 H.264${size ? ` · ${size.width}×${size.height}` : ""} · CRF ${options.quality === "high" ? 18 : options.quality === "small" ? 24 : 20}${withAudio ? " · AAC stereo" : " · no audio"}${item.hdr.tonemap ? " · SDR" : ""}`
   const buttonLabel = !selection
     ? "Set in and out first"
@@ -399,13 +404,37 @@ export function ExportButton({
               />
             </Field>
             {options.fit === "crop" && (
-              <CropPicker
-                item={item}
-                previewUrl={frameUrl(item.id, rangeStart, 640)}
-                focus={options.cropFocus}
-                onChange={(cropFocus) => onChange({ cropFocus })}
-                bars={(bars.data ?? null) as BarsResponse | null}
-              />
+              <>
+                <CropPicker
+                  item={item}
+                  previewUrl={frameUrl(item.id, rangeStart, 640)}
+                  focus={options.cropFocus}
+                  onChange={(cropFocus) => onChange({ cropFocus })}
+                  zoom={options.cropZoom}
+                  onZoomChange={(cropZoom) => onChange({ cropZoom })}
+                  bars={(bars.data ?? null) as BarsResponse | null}
+                />
+                <Field label="Zoom">
+                  <div className="flex items-center gap-2">
+                    <Slider
+                      className="w-28"
+                      min={MIN_CROP_ZOOM}
+                      max={MAX_CROP_ZOOM}
+                      step={0.05}
+                      value={options.cropZoom}
+                      onValueChange={(v) =>
+                        onChange({
+                          cropZoom: clampZoom(Array.isArray(v) ? v[0]! : v),
+                        })
+                      }
+                      aria-label="Crop zoom"
+                    />
+                    <span className="tnum text-muted-foreground w-9 text-right text-xs">
+                      {options.cropZoom.toFixed(2)}×
+                    </span>
+                  </div>
+                </Field>
+              </>
             )}
           </>
         )}

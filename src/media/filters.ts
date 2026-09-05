@@ -143,7 +143,8 @@ export const SHORTS_HEIGHT = 1920
 export function shortsPrescaleWidth(
   probe: ProbeResult,
   fit: ShortsFit,
-  picture?: { width: number; height: number }
+  picture?: { width: number; height: number },
+  zoom = 1
 ): number | undefined {
   const v = probe.video
   if (!v || !v.height) return undefined
@@ -154,7 +155,9 @@ export function shortsPrescaleWidth(
   const wanted =
     fit === "bars"
       ? Math.min(SHORTS_WIDTH, atHeight)
-      : Math.max(SHORTS_WIDTH, atHeight)
+      : fit === "crop"
+        ? Math.round(Math.max(SHORTS_WIDTH, atHeight) * clampZoom(zoom))
+        : Math.max(SHORTS_WIDTH, atHeight)
   // 4:2:0 output needs even dimensions; round up so nothing is lost.
   const box = wanted + (wanted % 2)
   return box < width ? box : undefined
@@ -165,9 +168,16 @@ export interface ShortsOptions {
   bars?: Crop
   /** Where the crop window sits, 0..1 from the left/top; 0.5 is centred. */
   focus?: { x: number; y: number }
+  /** Crop fit only: how much tighter than the widest 9:16 window; 1 is the whole picture. */
+  zoom?: number
 }
 
+export const MAX_SHORTS_ZOOM = 4
+const clampZoom = (z: number | undefined): number =>
+  Number.isFinite(z) ? Math.min(MAX_SHORTS_ZOOM, Math.max(1, z as number)) : 1
+
 const fraction = (n: number): string => Math.min(1, Math.max(0, n)).toFixed(3)
+const even = (n: number): number => Math.round(n / 2) * 2
 
 const W = SHORTS_WIDTH
 const H = SHORTS_HEIGHT
@@ -183,11 +193,18 @@ const SHORTS_FIT: Record<ShortsFit, string> = {
   bars: `scale=w=${W}:h=${H}:force_original_aspect_ratio=decrease:force_divisible_by=2:flags=lanczos,pad=w=${W}:h=${H}:x=(ow-iw)/2:y=(oh-ih)/2:color=black`,
 }
 
-/** Fill the frame, then cut the 9:16 window at the chosen position. */
+/**
+ * Fill the frame, then cut the 9:16 window at the chosen position. Zoom scales the
+ * picture past the frame so the window covers 1/zoom of it; the crop stays 1080x1920,
+ * so the aspect ratio never changes.
+ */
 const cropFit = (
-  focus: { x: number; y: number } = { x: 0.5, y: 0.5 }
-): string =>
-  `scale=w=${W}:h=${H}:force_original_aspect_ratio=increase:flags=lanczos,crop=w=${W}:h=${H}:x=(iw-${W})*${fraction(focus.x)}:y=(ih-${H})*${fraction(focus.y)}`
+  focus: { x: number; y: number } = { x: 0.5, y: 0.5 },
+  zoom = 1
+): string => {
+  const z = clampZoom(zoom)
+  return `scale=w=${even(W * z)}:h=${even(H * z)}:force_original_aspect_ratio=increase:flags=lanczos,crop=w=${W}:h=${H}:x=(iw-${W})*${fraction(focus.x)}:y=(ih-${H})*${fraction(focus.y)}`
+}
 
 /** 9:16 output for Shorts and Reels: drop the bars, fit the picture, fill the frame. */
 export function shortsFilters(
@@ -203,11 +220,11 @@ export function shortsFilters(
     ...prepFilters(
       probe,
       "field",
-      shortsPrescaleWidth(probe, fit, picture),
+      shortsPrescaleWidth(probe, fit, picture, opts.zoom),
       opts.bars
     ),
     "format=yuv420p",
-    fit === "crop" ? cropFit(opts.focus) : SHORTS_FIT[fit],
+    fit === "crop" ? cropFit(opts.focus, opts.zoom) : SHORTS_FIT[fit],
   ].join(",")
 }
 

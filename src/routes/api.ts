@@ -37,6 +37,7 @@ import type { CaptureOrderStore } from "../media/capture-order.js"
 import { detectBars } from "../media/bars.js"
 import type { FfmpegCapabilities } from "../media/ffmpeg.js"
 import { renderCaptureThumb, renderFrame } from "../media/frames.js"
+import { MAX_SHORTS_ZOOM } from "../media/filters.js"
 import { HlsError, hlsSessions } from "../media/hls.js"
 import { jobs, GIF_MAX_SECONDS, type ExportParams } from "../media/jobs.js"
 import { getPeaks } from "../media/peaks.js"
@@ -732,6 +733,8 @@ export function createApi(deps: ApiDeps): Router {
     focus: z
       .object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1) })
       .optional(),
+    /** Shorts crop only: how much tighter than the widest 9:16 window; 1 is the whole picture. */
+    zoom: z.number().min(1).max(MAX_SHORTS_ZOOM).optional(),
     /** GIF only. */
     fps: z.number().int().min(5).max(30).default(15),
     width: z.number().int().min(160).max(1280).default(480),
@@ -794,6 +797,7 @@ export function createApi(deps: ApiDeps): Router {
                 fit: body.fit,
                 trimBars: body.trimBars && caps.cropdetect,
                 ...(body.focus ? { focus: body.focus } : {}),
+                ...(body.zoom ? { zoom: body.zoom } : {}),
               }
             : {
                 ...common,
