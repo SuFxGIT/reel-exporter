@@ -129,46 +129,76 @@ export function fullResFilters(
 }
 
 // ---------------------------------------------------------------------------
-// Vertical (Shorts) output: 1080x1920
+// Shorts output: a fixed frame (9:16 by default) the picture is fitted into
 // ---------------------------------------------------------------------------
 
 export type ShortsFit = "blur" | "crop" | "bars"
-export const SHORTS_WIDTH = 1080
-export const SHORTS_HEIGHT = 1920
+export type ShortsAspect = "9:16" | "4:5" | "1:1" | "4:3" | "16:9"
+export const SHORTS_ASPECTS: ShortsAspect[] = [
+  "9:16",
+  "4:5",
+  "1:1",
+  "4:3",
+  "16:9",
+]
+export const DEFAULT_SHORTS_ASPECT: ShortsAspect = "9:16"
+
+export interface ShortsFrame {
+  width: number
+  height: number
+}
+
+/** Output sizes: 1080 on the short side, the popular vertical, square and landscape frames. */
+const SHORTS_FRAMES: Record<ShortsAspect, ShortsFrame> = {
+  "9:16": { width: 1080, height: 1920 },
+  "4:5": { width: 1080, height: 1350 },
+  "1:1": { width: 1080, height: 1080 },
+  "4:3": { width: 1440, height: 1080 },
+  "16:9": { width: 1920, height: 1080 },
+}
+
+export const shortsFrame = (aspect?: ShortsAspect): ShortsFrame =>
+  SHORTS_FRAMES[aspect ?? DEFAULT_SHORTS_ASPECT] ?? SHORTS_FRAMES["9:16"]
+
+export const SHORTS_WIDTH = SHORTS_FRAMES["9:16"].width
+export const SHORTS_HEIGHT = SHORTS_FRAMES["9:16"].height
 
 /**
  * Width to downscale to before tone-mapping so the expensive filters run at
- * the size the vertical frame needs rather than at source size.
+ * the size the frame needs rather than at source size.
  */
 export function shortsPrescaleWidth(
   probe: ProbeResult,
   fit: ShortsFit,
   picture?: { width: number; height: number },
-  zoom = 1
+  zoom = 1,
+  frame: ShortsFrame = shortsFrame()
 ): number | undefined {
   const v = probe.video
   if (!v || !v.height) return undefined
   const width = picture?.width ?? v.displayWidth
   const height = picture?.height ?? v.height
   if (!height) return undefined
-  const atHeight = Math.round((SHORTS_HEIGHT * width) / height)
+  const atHeight = Math.round((frame.height * width) / height)
   const wanted =
     fit === "bars"
-      ? Math.min(SHORTS_WIDTH, atHeight)
+      ? Math.min(frame.width, atHeight)
       : fit === "crop"
-        ? Math.round(Math.max(SHORTS_WIDTH, atHeight) * clampZoom(zoom))
-        : Math.max(SHORTS_WIDTH, atHeight)
+        ? Math.round(Math.max(frame.width, atHeight) * clampZoom(zoom))
+        : Math.max(frame.width, atHeight)
   // 4:2:0 output needs even dimensions; round up so nothing is lost.
   const box = wanted + (wanted % 2)
   return box < width ? box : undefined
 }
 
 export interface ShortsOptions {
+  /** Output frame; 9:16 when omitted. */
+  aspect?: ShortsAspect
   /** Picture rectangle without the black bars; applied before scaling. */
   bars?: Crop
   /** Where the crop window sits, 0..1 from the left/top; 0.5 is centred. */
   focus?: { x: number; y: number }
-  /** Crop fit only: how much tighter than the widest 9:16 window; 1 is the whole picture. */
+  /** Crop fit only: how much tighter than the widest window; 1 is the whole picture. */
   zoom?: number
 }
 
@@ -179,26 +209,29 @@ const clampZoom = (z: number | undefined): number =>
 const fraction = (n: number): string => Math.min(1, Math.max(0, n)).toFixed(3)
 const even = (n: number): number => Math.round(n / 2) * 2
 
-const W = SHORTS_WIDTH
-const H = SHORTS_HEIGHT
-const SHORTS_FIT: Record<ShortsFit, string> = {
-  // Blur a small copy and scale it back up: same look, a fraction of the cost.
-  blur: [
+/** Picture centred over a blurred copy. Blur a small copy and scale it back up: same look, a fraction of the cost. */
+const blurFit = ({ width: W, height: H }: ShortsFrame): string => {
+  const w = even(W / 4)
+  const h = even(H / 4)
+  return [
     "split[bg][fg]",
-    `[bg]scale=w=${W / 4}:h=${H / 4}:force_original_aspect_ratio=increase:flags=bicubic,crop=w=${W / 4}:h=${H / 4},gblur=sigma=8,scale=w=${W}:h=${H}:flags=bicubic[bgb]`,
+    `[bg]scale=w=${w}:h=${h}:force_original_aspect_ratio=increase:flags=bicubic,crop=w=${w}:h=${h},gblur=sigma=8,scale=w=${W}:h=${H}:flags=bicubic[bgb]`,
     `[fg]scale=w=${W}:h=${H}:force_original_aspect_ratio=decrease:force_divisible_by=2:flags=lanczos[fgs]`,
     "[bgb][fgs]overlay=x=(W-w)/2:y=(H-h)/2:format=yuv420,format=yuv420p",
-  ].join(";"),
-  crop: "",
-  bars: `scale=w=${W}:h=${H}:force_original_aspect_ratio=decrease:force_divisible_by=2:flags=lanczos,pad=w=${W}:h=${H}:x=(ow-iw)/2:y=(oh-ih)/2:color=black`,
+  ].join(";")
 }
 
+/** Picture centred on black. */
+const barsFit = ({ width: W, height: H }: ShortsFrame): string =>
+  `scale=w=${W}:h=${H}:force_original_aspect_ratio=decrease:force_divisible_by=2:flags=lanczos,pad=w=${W}:h=${H}:x=(ow-iw)/2:y=(oh-ih)/2:color=black`
+
 /**
- * Fill the frame, then cut the 9:16 window at the chosen position. Zoom scales the
- * picture past the frame so the window covers 1/zoom of it; the crop stays 1080x1920,
- * so the aspect ratio never changes.
+ * Fill the frame, then cut the window at the chosen position. Zoom scales the
+ * picture past the frame so the window covers 1/zoom of it; the crop stays the
+ * frame size, so the aspect ratio never changes.
  */
 const cropFit = (
+  { width: W, height: H }: ShortsFrame,
   focus: { x: number; y: number } = { x: 0.5, y: 0.5 },
   zoom = 1
 ): string => {
@@ -206,12 +239,13 @@ const cropFit = (
   return `scale=w=${even(W * z)}:h=${even(H * z)}:force_original_aspect_ratio=increase:flags=lanczos,crop=w=${W}:h=${H}:x=(iw-${W})*${fraction(focus.x)}:y=(ih-${H})*${fraction(focus.y)}`
 }
 
-/** 9:16 output for Shorts and Reels: drop the bars, fit the picture, fill the frame. */
+/** Shorts and Reels output: drop the bars, fit the picture, fill the frame. */
 export function shortsFilters(
   probe: ProbeResult,
   fit: ShortsFit,
   opts: ShortsOptions = {}
 ): string {
+  const frame = shortsFrame(opts.aspect)
   const sar = probe.video?.sar ?? 1
   const picture = opts.bars
     ? { width: opts.bars.w * sar, height: opts.bars.h }
@@ -220,11 +254,15 @@ export function shortsFilters(
     ...prepFilters(
       probe,
       "field",
-      shortsPrescaleWidth(probe, fit, picture, opts.zoom),
+      shortsPrescaleWidth(probe, fit, picture, opts.zoom, frame),
       opts.bars
     ),
     "format=yuv420p",
-    fit === "crop" ? cropFit(opts.focus, opts.zoom) : SHORTS_FIT[fit],
+    fit === "crop"
+      ? cropFit(frame, opts.focus, opts.zoom)
+      : fit === "blur"
+        ? blurFit(frame)
+        : barsFit(frame),
   ].join(",")
 }
 

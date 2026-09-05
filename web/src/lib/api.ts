@@ -177,6 +177,7 @@ export interface Job {
     quality: "high" | "balanced" | "small"
     maxWidth?: number
     fit?: "blur" | "crop" | "bars"
+    aspect?: "9:16" | "4:5" | "1:1" | "4:3" | "16:9"
     fps?: number
     width?: number
   }
@@ -293,6 +294,7 @@ export const api = {
       quality?: "high" | "balanced" | "small"
       maxWidth?: number
       fit?: "blur" | "crop" | "bars"
+      aspect?: "9:16" | "4:5" | "1:1" | "4:3" | "16:9"
       focus?: { x: number; y: number }
       zoom?: number
       fps?: number

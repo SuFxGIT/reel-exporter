@@ -28,11 +28,12 @@ import {
   inputArgs,
   shortsFilters,
   type Crop,
+  type ShortsAspect,
   type ShortsFit,
 } from "./filters.js"
 import type { ProbeResult } from "./probe.js"
 
-export type { ShortsFit } from "./filters.js"
+export type { ShortsAspect, ShortsFit } from "./filters.js"
 
 export type JobStatus = "queued" | "running" | "done" | "failed" | "cancelled"
 
@@ -60,6 +61,8 @@ export type ExportParams =
   | (ExportBase & {
       format: "shorts"
       fit: ShortsFit
+      /** Output frame; 9:16 when omitted. */
+      aspect?: ShortsAspect
       /** Detect and drop black bars baked into the picture. */
       trimBars: boolean
       /** Crop fit only: window position, 0..1 from the left/top. */
@@ -246,6 +249,7 @@ export function exportArgs(
         "4",
         "-vf",
         shortsFilters(probe, params.fit, {
+          ...(params.aspect ? { aspect: params.aspect } : {}),
           ...(extra.bars ? { bars: extra.bars } : {}),
           ...(params.focus ? { focus: params.focus } : {}),
           ...(params.zoom ? { zoom: params.zoom } : {}),

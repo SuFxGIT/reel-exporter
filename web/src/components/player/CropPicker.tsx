@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import type { BarsResponse, ItemDetail } from "@/lib/api"
+import { SHORTS_FRAMES, type ShortsAspect } from "@/lib/export-options"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 
@@ -12,7 +13,6 @@ export const MIN_CROP_ZOOM = 1
 export const MAX_CROP_ZOOM = 3
 const ZOOM_STEP = 0.1
 
-const OUT_ASPECT = 9 / 16
 const clamp01 = (n: number) => Math.min(1, Math.max(0, n))
 export const clampZoom = (z: number) =>
   Math.min(MAX_CROP_ZOOM, Math.max(MIN_CROP_ZOOM, Math.round(z * 100) / 100))
@@ -25,20 +25,21 @@ interface Rect {
 }
 
 /**
- * Where the 9:16 window sits over a frame: the largest 9:16 box that fits the
- * picture (the frame minus detected bars), shrunk by `zoom` and moved by
- * `focus` (0..1).
+ * Where the crop window sits over a frame: the largest box with the output
+ * aspect that fits the picture (the frame minus detected bars), shrunk by
+ * `zoom` and moved by `focus` (0..1).
  */
 export function layoutWindow(
   picture: Rect,
   focus: Focus,
-  zoom = 1
+  zoom = 1,
+  aspect = 9 / 16
 ): { win: Rect; axis: "x" | "y" | "both" | null } {
   const z = clampZoom(zoom)
-  const wide = picture.w / picture.h > OUT_ASPECT
+  const wide = picture.w / picture.h > aspect
   const win: Rect = wide
-    ? { x: 0, y: 0, w: (picture.h * OUT_ASPECT) / z, h: picture.h / z }
-    : { x: 0, y: 0, w: picture.w / z, h: picture.w / OUT_ASPECT / z }
+    ? { x: 0, y: 0, w: (picture.h * aspect) / z, h: picture.h / z }
+    : { x: 0, y: 0, w: picture.w / z, h: picture.w / aspect / z }
   const slackX = picture.w - win.w
   const slackY = picture.h - win.h
   win.x = picture.x + slackX * clamp01(focus.x)
@@ -57,6 +58,7 @@ export function layoutWindow(
 export function CropPicker({
   item,
   previewUrl,
+  aspect,
   focus,
   onChange,
   zoom,
@@ -65,6 +67,7 @@ export function CropPicker({
 }: {
   item: ItemDetail
   previewUrl: string
+  aspect: ShortsAspect
   focus: Focus
   onChange: (focus: Focus) => void
   zoom: number
@@ -114,7 +117,13 @@ export function CropPicker({
         h: crop.h * scale,
       }
     : frame
-  const { win, axis } = layoutWindow(picture, focus, zoom)
+  const frameOut = SHORTS_FRAMES[aspect]
+  const { win, axis } = layoutWindow(
+    picture,
+    focus,
+    zoom,
+    frameOut.width / frameOut.height
+  )
 
   const place = useCallback(
     (clientX: number, clientY: number) => {
@@ -237,7 +246,7 @@ export function CropPicker({
       <div className="text-muted-foreground flex items-center justify-between text-[11px]">
         <span>
           {axis === null && zoom === 1
-            ? "The picture already fits 9:16. Zoom to crop tighter."
+            ? `The picture already fits ${aspect}. Zoom to crop tighter.`
             : crop
               ? "Drag to move, scroll to zoom. Black bars are left out."
               : "Drag to move, scroll to zoom"}

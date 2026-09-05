@@ -203,6 +203,7 @@ export function Player({ item, onToggleSidebar, onClose }: Props) {
               ? {
                   format: "shorts" as const,
                   fit: clipOpts.fit,
+                  aspect: clipOpts.aspect,
                   ...(clipOpts.fit === "crop"
                     ? { focus: clipOpts.cropFocus, zoom: clipOpts.cropZoom }
                     : {}),

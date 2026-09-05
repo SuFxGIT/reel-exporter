@@ -37,9 +37,14 @@ import type { CaptureOrderStore } from "../media/capture-order.js"
 import { detectBars } from "../media/bars.js"
 import type { FfmpegCapabilities } from "../media/ffmpeg.js"
 import { renderCaptureThumb, renderFrame } from "../media/frames.js"
-import { MAX_SHORTS_ZOOM } from "../media/filters.js"
+import { MAX_SHORTS_ZOOM, SHORTS_ASPECTS } from "../media/filters.js"
 import { HlsError, hlsSessions } from "../media/hls.js"
-import { jobs, GIF_MAX_SECONDS, type ExportParams } from "../media/jobs.js"
+import {
+  jobs,
+  GIF_MAX_SECONDS,
+  type ExportParams,
+  type ShortsAspect,
+} from "../media/jobs.js"
 import { getPeaks } from "../media/peaks.js"
 import { probeFile, type ProbeResult } from "../media/probe.js"
 import { TimeoutError, isWritableDir, withTimeout } from "../util/async.js"
@@ -727,6 +732,8 @@ export function createApi(deps: ApiDeps): Router {
     format: z.enum(["mp4", "shorts", "gif"]).default("mp4"),
     /** Shorts only: how a widescreen picture fills the 9:16 frame. */
     fit: z.enum(["blur", "crop", "bars"]).default("blur"),
+    /** Shorts only: output frame. */
+    aspect: z.enum(SHORTS_ASPECTS as [string, ...string[]]).default("9:16"),
     /** Shorts only: detect and drop black bars baked into the picture. */
     trimBars: z.boolean().default(true),
     /** Shorts crop only: window position, 0..1 from the left and top. */
@@ -795,6 +802,7 @@ export function createApi(deps: ApiDeps): Router {
                 ...common,
                 format: "shorts",
                 fit: body.fit,
+                aspect: body.aspect as ShortsAspect,
                 trimBars: body.trimBars && caps.cropdetect,
                 ...(body.focus ? { focus: body.focus } : {}),
                 ...(body.zoom ? { zoom: body.zoom } : {}),

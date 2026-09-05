@@ -5,6 +5,19 @@ export type SizePreset = "source" | "1080" | "720" | "custom"
 export type ClipQuality = "high" | "balanced" | "small"
 export type ExportFormat = "mp4" | "shorts" | "gif"
 export type ShortsFit = "blur" | "crop" | "bars"
+export type ShortsAspect = "9:16" | "4:5" | "1:1" | "4:3" | "16:9"
+
+/** Output frames for the Shorts export: 1080 on the short side. */
+export const SHORTS_FRAMES: Record<
+  ShortsAspect,
+  { width: number; height: number }
+> = {
+  "9:16": { width: 1080, height: 1920 },
+  "4:5": { width: 1080, height: 1350 },
+  "1:1": { width: 1080, height: 1080 },
+  "4:3": { width: 1440, height: 1080 },
+  "16:9": { width: 1920, height: 1080 },
+}
 export type GifWidth = 320 | 480 | 640
 export type GifFps = 10 | 15 | 20
 
@@ -26,7 +39,9 @@ export interface ClipOptions {
   quality: ClipQuality
   /** Include the selected audio track. */
   audio: boolean
-  /** Shorts: how a widescreen picture fills the 9:16 frame. */
+  /** Shorts: the output frame. */
+  aspect: ShortsAspect
+  /** Shorts: how the picture fills the frame. */
   fit: ShortsFit
   /** Shorts crop: where the 9:16 window sits, 0..1 from the left and top. */
   cropFocus: { x: number; y: number }
@@ -47,6 +62,7 @@ export const defaultClipOptions: ClipOptions = {
   size: "source",
   quality: "balanced",
   audio: true,
+  aspect: "9:16",
   fit: "blur",
   cropFocus: { x: 0.5, y: 0.5 },
   cropZoom: 1,

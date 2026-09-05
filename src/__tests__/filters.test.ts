@@ -188,3 +188,34 @@ describe("shortsFilters with bars and a focus", () => {
     )
   })
 })
+
+describe("shortsFilters with another aspect", () => {
+  it("sizes every fit to the chosen frame", () => {
+    const src = sdr(3840, 2160)
+    expect(shortsFilters(src, "bars", { aspect: "1:1" })).toContain(
+      "pad=w=1080:h=1080:"
+    )
+    expect(shortsFilters(src, "bars", { aspect: "1:1" })).toContain(
+      "scale=w='min(1080,iw*sar)'"
+    )
+    const blur = shortsFilters(src, "blur", { aspect: "4:5" })
+    expect(blur).toContain("scale=w=270:h=338:")
+    expect(blur).toContain("scale=w=1080:h=1350:flags=bicubic[bgb]")
+    const crop = shortsFilters(src, "crop", {
+      aspect: "16:9",
+      focus: { x: 0.5, y: 0 },
+      zoom: 2,
+    })
+    expect(crop).toContain(
+      "scale=w=3840:h=2160:force_original_aspect_ratio=increase:flags=lanczos,crop=w=1920:h=1080:x=(iw-1920)*0.500:y=(ih-1080)*0.000"
+    )
+    // 4K into a 16:9 frame at zoom 2 needs 3840 wide, so no prescale.
+    expect(crop).not.toContain("scale=w='min(")
+    expect(shortsFilters(src, "crop", { aspect: "16:9" })).toContain(
+      "scale=w='min(1920,iw*sar)'"
+    )
+    expect(shortsFilters(src, "crop")).toBe(
+      shortsFilters(src, "crop", { aspect: "9:16" })
+    )
+  })
+})
