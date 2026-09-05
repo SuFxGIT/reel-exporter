@@ -307,10 +307,25 @@ export function formatTimestampForName(seconds: number): string {
   return `${pad(h)}-${pad(m)}-${pad(s)}.${pad(ms, 3)}`
 }
 
-/** "12.png" -> 12; null for anything that is not a numbered screenshot. */
+/** "12.png" or "3.mp4" -> 12 / 3; null for anything that is not a plain numbered capture. */
 export function parseCaptureNumber(name: string): number | null {
-  const m = /^(\d{1,9})\.(?:png|jpe?g|webp)$/i.exec(name)
+  const m = /^(\d{1,9})\.(?:png|jpe?g|webp|mp4|gif)$/i.exec(name)
   return m ? Number(m[1]) : null
+}
+
+/** "Intro cut.mp4" -> { stem: "Intro cut", ext: ".mp4" } */
+export function splitCaptureName(name: string): { stem: string; ext: string } {
+  const dot = name.lastIndexOf(".")
+  if (dot <= 0) return { stem: name, ext: "" }
+  return { stem: name.slice(0, dot), ext: name.slice(dot).toLowerCase() }
+}
+
+/** A user-typed file stem made filesystem-safe; null when nothing usable is left. */
+export function safeStem(input: string): string | null {
+  const trimmed = input.trim()
+  if (!trimmed) return null
+  const s = safeName(trimmed, 120)
+  return s === "untitled" && !/untitled/i.test(trimmed) ? null : s
 }
 
 /** Next free number for "1.png", "2.jpg", ... given the names already in the folder. */
@@ -321,19 +336,4 @@ export function nextCaptureNumber(names: Iterable<string>): number {
     if (num !== null) max = Math.max(max, num)
   }
   return max + 1
-}
-
-/**
- * Renames that turn `ordered` (numbered screenshot names in their intended
- * order) into 1.ext, 2.ext, ... Names already in place are left out.
- */
-export function renumberPlan(
-  ordered: string[]
-): Array<{ from: string; to: string }> {
-  return ordered
-    .map((from, i) => {
-      const dot = from.lastIndexOf(".")
-      return { from, to: `${i + 1}${from.slice(dot).toLowerCase()}` }
-    })
-    .filter((m) => m.from !== m.to)
 }

@@ -4,13 +4,12 @@ import PQueue from "p-queue"
 import { config } from "../config.js"
 import {
   nextCaptureNumber,
-  parseCaptureNumber,
-  renumberPlan,
   safeName,
+  safeStem,
+  splitCaptureName,
 } from "../library/naming.js"
 import type { PlayableInfo } from "../library/store.js"
 import { logger } from "../logger.js"
-import { exists } from "../util/async.js"
 import { toUrlPath } from "../util/paths.js"
 import { lastLines, runFfmpeg, runFfprobe } from "./ffmpeg.js"
 import { screenshotEncoder, type ScreenshotFormat } from "./encoders.js"
@@ -66,141 +65,90 @@ export function captureUrls(
 export const fileVersion = (st: { ino: number; mtimeMs: number }): string =>
   `${st.ino.toString(36)}-${Math.round(st.mtimeMs).toString(36)}`
 
-/** Reserves a unique output path: OUTPUT/<Title (Year)>/<base> - <suffix>.<ext> */
-export async function allocateCapture(
-  info: PlayableInfo,
-  suffix: string,
-  ext: string
-): Promise<CaptureTarget> {
-  const folder = safeName(info.folderName)
-  const dir = path.join(config.outputPath, folder)
-  await fs.mkdir(dir, { recursive: true })
-  const stem = safeName(`${info.baseName} - ${suffix}`, 180)
-  for (let n = 1; n < 1000; n++) {
-    const name = n === 1 ? `${stem}.${ext}` : `${stem} -${n}.${ext}`
-    const absPath = path.join(dir, name)
-    if (reserved.has(absPath) || (await exists(absPath))) continue
-    reserved.add(absPath)
-    return { dir, absPath, relPath: `${folder}/${name}`, name }
-  }
-  throw new Error("Could not find a free file name for the capture.")
-}
-
 /**
- * Folder that holds a title's screenshots: OUTPUT/<Title (Year)> for movies and
+ * Folder that holds a title's captures: OUTPUT/<Title (Year)> for movies and
  * OUTPUT/<Show (Year)>/<S01E02> for episodes (relative to OUTPUT_PATH).
  */
-export function screenshotFolder(info: PlayableInfo): string {
+export function captureFolder(info: PlayableInfo): string {
   const folder = safeName(info.folderName)
   return info.episodeTag ? `${folder}/${safeName(info.episodeTag)}` : folder
 }
 
-/** Reserves the next numbered screenshot name: OUTPUT/<folder>/<n>.<ext> */
-export function allocateScreenshot(
+const pendingIn = (dir: string): string[] =>
+  [...reserved]
+    .filter((p) => path.dirname(p) === dir)
+    .map((p) => path.basename(p))
+
+/**
+ * Reserves the next numbered name in the title's folder: OUTPUT/<folder>/<n>.<ext>.
+ * One counter covers screenshots, clips, Shorts and GIFs; the number is one
+ * above the highest already there, so nothing ever needs renaming.
+ */
+export function allocateNumbered(
   info: PlayableInfo,
   ext: string
 ): Promise<CaptureTarget> {
   const run = async (): Promise<CaptureTarget> => {
-    const folder = screenshotFolder(info)
+    const folder = captureFolder(info)
     const dir = path.join(config.outputPath, folder)
     await fs.mkdir(dir, { recursive: true })
     const names = await fs.readdir(dir).catch(() => [] as string[])
-    const pending = [...reserved]
-      .filter((p) => path.dirname(p) === dir)
-      .map((p) => path.basename(p))
-    const name = `${nextCaptureNumber([...names, ...pending])}.${ext}`
+    const name = `${nextCaptureNumber([...names, ...pendingIn(dir)])}.${ext}`
     const absPath = path.join(dir, name)
     reserved.add(absPath)
     return { dir, absPath, relPath: `${folder}/${name}`, name }
   }
-  // Serialised so two concurrent screenshots never pick the same number.
-  const next = allocating.then(run, run)
-  allocating = next.catch(() => undefined)
-  return next
-}
-
-const pendingIn = (dir: string): boolean =>
-  [...reserved].some((p) => path.dirname(p) === dir)
-
-/** Applies renames in two phases so "1 -> 2" and "2 -> 1" never overwrite each other. */
-async function applyRenames(
-  dir: string,
-  moves: Array<{ from: string; to: string }>
-): Promise<void> {
-  const staged = moves.map((m, i) => ({
-    ...m,
-    tmp: `.reorder-${process.pid}-${i}${path.extname(m.from)}`,
-  }))
-  for (const m of staged)
-    await fs.rename(path.join(dir, m.from), path.join(dir, m.tmp))
-  for (const m of staged)
-    await fs.rename(path.join(dir, m.tmp), path.join(dir, m.to))
-}
-
-const numberedIn = async (dir: string): Promise<string[]> =>
-  (await fs.readdir(dir).catch(() => [] as string[])).filter(
-    (n) => parseCaptureNumber(n) !== null
-  )
-
-/**
- * Renumbers a title's screenshots so `names[i]` becomes `${i + 1}.<ext>`.
- * `names` must list every numbered screenshot in the folder exactly once.
- */
-export function reorderScreenshots(
-  info: PlayableInfo,
-  names: string[]
-): Promise<Array<{ from: string; to: string }>> {
-  const run = async () => {
-    const folder = screenshotFolder(info)
-    const dir = path.join(config.outputPath, folder)
-    if (pendingIn(dir))
-      throw new CaptureError(
-        409,
-        "busy",
-        "A screenshot is still being saved. Try again in a moment."
-      )
-    const existing = (await numberedIn(dir)).sort()
-    const wanted = [...names].sort()
-    if (
-      wanted.length !== existing.length ||
-      wanted.some((n, i) => n !== existing[i])
-    )
-      throw new CaptureError(
-        409,
-        "stale",
-        "The screenshots changed since the list was loaded. Refresh and try again."
-      )
-    const moves = renumberPlan(names)
-    if (moves.length > 0) {
-      await applyRenames(dir, moves)
-      logger.info({ folder, moves: moves.length }, "screenshots renumbered")
-    }
-    return moves
-  }
+  // Serialised so two concurrent captures never pick the same number.
   const next = allocating.then(run, run)
   allocating = next.catch(() => undefined)
   return next
 }
 
 /**
- * Closes gaps after a delete so a folder's screenshots are always 1..n in
- * their current order. Skipped while a screenshot is still being written.
+ * Renames a capture, keeping its extension. `targetDir` moves it at the same
+ * time (older episode captures live in the show folder and are brought into
+ * the episode folder when renamed). Returns the new absolute path and name.
  */
-export function compactScreenshots(dir: string): Promise<number> {
+export function renameCapture(
+  absPath: string,
+  stem: string,
+  targetDir = path.dirname(absPath)
+): Promise<{ absPath: string; name: string }> {
   const run = async () => {
-    if (pendingIn(dir)) return 0
-    const ordered = (await numberedIn(dir)).sort(
-      (a, b) => parseCaptureNumber(a)! - parseCaptureNumber(b)!
-    )
-    const moves = renumberPlan(ordered)
-    if (moves.length > 0) {
-      await applyRenames(dir, moves)
-      logger.info(
-        { folder: path.relative(config.outputPath, dir), moves: moves.length },
-        "screenshots renumbered"
+    const dir = targetDir
+    const current = path.basename(absPath)
+    const { ext } = splitCaptureName(current)
+    const safe = safeStem(stem)
+    if (!safe)
+      throw new CaptureError(400, "bad_request", "Enter a name for the file.")
+    const name = `${safe}${ext}`
+    const target = path.join(dir, name)
+    if (target === absPath) return { absPath, name }
+    await fs.mkdir(dir, { recursive: true })
+    const taken =
+      reserved.has(target) ||
+      (await fs.stat(target).then(
+        () => true,
+        () => false
+      ))
+    if (taken)
+      throw new CaptureError(
+        409,
+        "exists",
+        "A file with that name already exists. Choose another name."
       )
+    try {
+      await fs.rename(absPath, target)
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT")
+        throw new CaptureError(404, "not_found", "No such capture.")
+      throw err
     }
-    return moves.length
+    logger.info(
+      { from: path.relative(config.outputPath, absPath), to: name },
+      "capture renamed"
+    )
+    return { absPath: target, name }
   }
   const next = allocating.then(run, run)
   allocating = next.catch(() => undefined)
@@ -263,7 +211,7 @@ export function takeScreenshot(
       throw new Error("This file has no video stream to capture.")
     const enc = screenshotEncoder(opts.format, opts.quality)
     const ext = enc.ext
-    const target = await allocateScreenshot(info, ext)
+    const target = await allocateNumbered(info, ext)
     const tmp = `${target.absPath}.tmp.${ext}`
     try {
       const args = [

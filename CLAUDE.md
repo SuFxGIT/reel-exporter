@@ -45,7 +45,10 @@ There is no ffmpeg on the host; anything that touches media runs in a container.
   HDR, `shortsFilters` for the 1080x1920 blur/crop/bars fits, `gifFilters` for fps and
   width). `probe.ts` classifies HDR (pq, hlg, dovi-p5, unknown-hdr) from ffprobe JSON.
 - `src/media/capture.ts` (screenshots: PNG/JPEG/WebP with `encoders.ts` mapping quality to
-  encoder args, optional max width, numbered names), `jobs.ts` (export queue: MP4 with
+  encoder args, optional max width; `allocateNumbered` hands out `1.png`, `2.mp4`, ... per
+  title folder for every capture kind; `renameCapture` for explicit renames; files are never
+  renamed automatically), `capture-order.ts` (tile order in `CONFIG_PATH/captures.json`),
+  `jobs.ts` (export queue: MP4 with
   quality presets, vertical Shorts MP4, two-pass GIF with a per-clip palette; `exportArgs`
   is pure and unit-tested), `peaks.ts` (waveform), `frames.ts` (hover and capture
   thumbnails). All child processes go through `ffmpeg.ts`'s `ProcessRegistry`.

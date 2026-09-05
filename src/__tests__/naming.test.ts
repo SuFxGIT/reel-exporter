@@ -12,7 +12,8 @@ import {
   sortKey,
   nextCaptureNumber,
   parseCaptureNumber,
-  renumberPlan,
+  safeStem,
+  splitCaptureName,
 } from "../library/naming.js"
 
 describe("parseSeasonDir", () => {
@@ -236,42 +237,47 @@ describe("nextCaptureNumber", () => {
 })
 
 describe("parseCaptureNumber", () => {
-  it("reads plain numbered image names only", () => {
+  it("reads plain numbered captures of every kind", () => {
     expect(parseCaptureNumber("7.png")).toBe(7)
     expect(parseCaptureNumber("12.JPG")).toBe(12)
-    expect(parseCaptureNumber("7.mp4")).toBeNull()
+    expect(parseCaptureNumber("3.webp")).toBe(3)
+    expect(parseCaptureNumber("7.mp4")).toBe(7)
+    expect(parseCaptureNumber("4.gif")).toBe(4)
     expect(parseCaptureNumber("07a.png")).toBeNull()
     expect(parseCaptureNumber("Title - 00-01-00.000.png")).toBeNull()
+    expect(parseCaptureNumber("5.png.tmp.png")).toBeNull()
+  })
+
+  it("feeds one counter shared by screenshots, clips and GIFs", () => {
+    expect(nextCaptureNumber(["1.png", "2.mp4", "3.gif"])).toBe(4)
+    expect(nextCaptureNumber(["Intro.png", "2.webp"])).toBe(3)
   })
 })
 
-describe("renumberPlan", () => {
-  it("closes gaps and keeps extensions", () => {
-    expect(renumberPlan(["1.png", "3.jpg", "4.PNG"])).toEqual([
-      { from: "3.jpg", to: "2.jpg" },
-      { from: "4.PNG", to: "3.png" },
-    ])
-  })
-
-  it("is empty when everything is already in place", () => {
-    expect(renumberPlan(["1.png", "2.jpg"])).toEqual([])
-  })
-
-  it("renumbers a reordered list", () => {
-    expect(renumberPlan(["2.png", "1.png"])).toEqual([
-      { from: "2.png", to: "1.png" },
-      { from: "1.png", to: "2.png" },
-    ])
+describe("splitCaptureName", () => {
+  it("separates the stem from a lower-cased extension", () => {
+    expect(splitCaptureName("Intro cut.MP4")).toEqual({
+      stem: "Intro cut",
+      ext: ".mp4",
+    })
+    expect(splitCaptureName("noext")).toEqual({ stem: "noext", ext: "" })
+    expect(splitCaptureName(".hidden")).toEqual({ stem: ".hidden", ext: "" })
   })
 })
 
-describe("numbered WebP screenshots", () => {
-  it("are recognised, counted and renumbered like PNG and JPEG", () => {
-    expect(parseCaptureNumber("3.webp")).toBe(3)
-    expect(parseCaptureNumber("3.WEBP")).toBe(3)
-    expect(nextCaptureNumber(["1.png", "2.webp"])).toBe(3)
-    expect(renumberPlan(["1.png", "3.webp"])).toEqual([
-      { from: "3.webp", to: "2.webp" },
-    ])
+describe("safeStem", () => {
+  it("keeps readable names and strips what a filesystem rejects", () => {
+    expect(safeStem("  Intro: the/best*take?  ")).toBe("Intro thebesttake")
+    expect(safeStem("\u0645\u0631\u062d\u0628\u0627")).toBe(
+      "\u0645\u0631\u062d\u0628\u0627"
+    )
+    expect(safeStem("..trailing dots...")).toBe("trailing dots")
+  })
+
+  it("rejects names with nothing usable", () => {
+    expect(safeStem("")).toBeNull()
+    expect(safeStem("   ")).toBeNull()
+    expect(safeStem("///")).toBeNull()
+    expect(safeStem("untitled")).toBe("untitled")
   })
 })

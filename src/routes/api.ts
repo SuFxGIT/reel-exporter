@@ -27,13 +27,13 @@ import type { LibraryStore, PlayableInfo } from "../library/store.js"
 import { logger } from "../logger.js"
 import {
   CaptureError,
+  captureFolder,
   captureUrls,
-  compactScreenshots,
   fileVersion,
-  reorderScreenshots,
-  screenshotFolder,
+  renameCapture,
   takeScreenshot,
 } from "../media/capture.js"
+import type { CaptureOrderStore } from "../media/capture-order.js"
 import type { FfmpegCapabilities } from "../media/ffmpeg.js"
 import { renderCaptureThumb, renderFrame } from "../media/frames.js"
 import { HlsError, hlsSessions } from "../media/hls.js"
@@ -63,6 +63,7 @@ export interface Runtime {
 export interface ApiDeps {
   store: LibraryStore
   sources: SourcesStore
+  captureOrder: CaptureOrderStore
   caps: FfmpegCapabilities
   runtime: Runtime
   /** Recomputes runtime.mediaReadable after the sources changed. */
@@ -120,7 +121,7 @@ const numberParam = (v: unknown, name: string, fallback?: number): number => {
 }
 
 export function createApi(deps: ApiDeps): Router {
-  const { store, sources, caps, runtime, refreshRuntime } = deps
+  const { store, sources, captureOrder, caps, runtime, refreshRuntime } = deps
   const router = express.Router()
   // Mount suggestions skip everything a source could never be, including /app.
   const mountExclude = [
@@ -770,59 +771,51 @@ export function createApi(deps: ApiDeps): Router {
       const folder = safeName(info.folderName)
       const dir = path.join(config.outputPath, folder)
       const tag = info.episodeTag ? ` - ${info.episodeTag} - ` : null
-      // Numbered screenshots live in the title folder (movies) or an episode
-      // sub-folder; clips and older captures sit in the title folder with the
-      // episode tag in their name.
-      const shotFolder = screenshotFolder(info)
-      const shotDir = path.join(config.outputPath, shotFolder)
-      // Close any gap left by files removed outside the app (or by older
-      // versions) so the numbers on the tiles always run 1..n.
-      await compactScreenshots(shotDir).catch((err: Error) =>
-        logger.warn({ err }, "could not renumber screenshots")
-      )
+      // All captures live in the title folder (movies) or the episode
+      // sub-folder; older episode captures sit in the show folder with the
+      // episode tag in their name and are listed too.
+      const capFolder = captureFolder(info)
+      const capDir = path.join(config.outputPath, capFolder)
       const candidates: Array<{ dir: string; folder: string; name: string }> =
         []
-      for (const n of await fs.readdir(dir).catch(() => [] as string[])) {
+      for (const n of await fs.readdir(capDir).catch(() => [] as string[])) {
         if (!CAPTURE_EXT.has(path.extname(n).toLowerCase())) continue
-        if (tag && !n.includes(tag)) continue
-        candidates.push({ dir, folder, name: n })
+        candidates.push({ dir: capDir, folder: capFolder, name: n })
       }
-      if (shotDir !== dir) {
-        for (const n of await fs.readdir(shotDir).catch(() => [] as string[])) {
+      if (capDir !== dir) {
+        for (const n of await fs.readdir(dir).catch(() => [] as string[])) {
           if (!CAPTURE_EXT.has(path.extname(n).toLowerCase())) continue
-          candidates.push({ dir: shotDir, folder: shotFolder, name: n })
+          if (tag && !n.includes(tag)) continue
+          candidates.push({ dir, folder, name: n })
         }
       }
       const entries = await Promise.all(
-        candidates.map(async (c) => {
-          const st = await fs.stat(path.join(c.dir, c.name)).catch(() => null)
-          if (!st || !st.isFile()) return null
-          const relPath = `${c.folder}/${c.name}`
-          const number = c.dir === shotDir ? parseCaptureNumber(c.name) : null
-          return {
-            name: c.name,
-            relPath,
-            kind: captureKind(c.name),
-            ...(number !== null ? { number } : {}),
-            size: st.size,
-            mtime: st.mtime.toISOString(),
-            ...captureUrls(relPath, fileVersion(st)),
-          }
-        })
+        candidates.map(async (c) =>
+          captureEntry(path.join(c.dir, c.name), `${c.folder}/${c.name}`)
+        )
       )
-      // Numbered screenshots first, in order (the strip mirrors the numbers);
-      // clips and older captures follow, newest first.
-      const all = entries.filter((e): e is NonNullable<typeof e> => e !== null)
-      const numbered = all
-        .filter((e) => e.number !== undefined)
-        .sort((a, b) => a.number! - b.number!)
-      const rest = all
-        .filter((e) => e.number === undefined)
-        .sort((a, b) => b.mtime.localeCompare(a.mtime))
-        .slice(0, 60)
-      const list = [...numbered, ...rest]
+      const all = entries.filter((e): e is CaptureEntry => e !== null)
+      // Remembered order first, then the rest by number, then by age.
+      const byRel = new Map(all.map((e) => [e.relPath, e]))
+      const ordered: CaptureEntry[] = []
+      for (const rel of captureOrder.get(capFolder)) {
+        const e = byRel.get(rel)
+        if (e) {
+          ordered.push(e)
+          byRel.delete(rel)
+        }
+      }
+      const rest = [...byRel.values()].sort((a, b) => {
+        const na = parseCaptureNumber(a.name)
+        const nb = parseCaptureNumber(b.name)
+        if (na !== null && nb !== null) return na - nb
+        if (na !== null) return -1
+        if (nb !== null) return 1
+        return a.mtime.localeCompare(b.mtime)
+      })
+      const list = [...ordered, ...rest]
       res.json({
-        folder: relOrAbs(shotDir),
+        folder: relOrAbs(capDir),
         captures: list,
         jobs: jobs
           .list(id)
@@ -833,27 +826,58 @@ export function createApi(deps: ApiDeps): Router {
 
   const relOrAbs = (dir: string): string => dir
 
+  interface CaptureEntry {
+    name: string
+    relPath: string
+    kind: CaptureKind
+    size: number
+    mtime: string
+    url: string
+    thumbUrl: string
+    downloadUrl: string
+  }
+
+  async function captureEntry(
+    abs: string,
+    relPath: string
+  ): Promise<CaptureEntry | null> {
+    const st = await fs.stat(abs).catch(() => null)
+    if (!st || !st.isFile()) return null
+    return {
+      name: path.basename(abs),
+      relPath,
+      kind: captureKind(abs),
+      size: st.size,
+      mtime: st.mtime.toISOString(),
+      ...captureUrls(relPath, fileVersion(st)),
+    }
+  }
+
   const orderSchema = z.object({
-    names: z.array(z.string().min(1).max(64)).max(1000),
+    relPaths: z.array(z.string().min(1).max(400)).max(2000),
   })
   router.put(
-    "/items/:id/screenshots/order",
+    "/items/:id/captures/order",
     wrap(async (req, res) => {
       const id = req.params.id as string
       const info = store.getPlayable(id)
       if (!info)
         throw new ApiError(404, "No playable item with that id.", "not_found")
-      const { names } = parseBody(orderSchema, req.body)
-      if (names.some((n) => parseCaptureNumber(n) === null))
+      const { relPaths } = parseBody(orderSchema, req.body)
+      const capFolder = captureFolder(info)
+      const showFolder = safeName(info.folderName)
+      const inside = (rel: string) =>
+        rel.startsWith(`${capFolder}/`) || rel.startsWith(`${showFolder}/`)
+      if (relPaths.some((r) => !inside(r) || r.includes("/../")))
         throw new ApiError(
           400,
-          "Only numbered screenshots can be reordered.",
+          "Only this title's captures can be ordered.",
           "bad_request"
         )
-      if (new Set(names).size !== names.length)
-        throw new ApiError(400, "A name is listed twice.", "bad_request")
-      const moves = await reorderScreenshots(info, names)
-      res.json({ moves })
+      if (new Set(relPaths).size !== relPaths.length)
+        throw new ApiError(400, "A file is listed twice.", "bad_request")
+      await captureOrder.set(capFolder, relPaths)
+      res.status(204).end()
     })
   )
 
@@ -903,16 +927,50 @@ export function createApi(deps: ApiDeps): Router {
       await fs.unlink(abs).catch(() => {
         throw new ApiError(404, "No such capture.", "not_found")
       })
-      logger.info(
-        { file: path.relative(config.outputPath, abs) },
-        "capture deleted"
-      )
-      // Keep the remaining screenshots 1..n so the strip and the files agree.
-      if (parseCaptureNumber(path.basename(abs)) !== null)
-        await compactScreenshots(path.dirname(abs)).catch((err: Error) =>
-          logger.warn({ err }, "could not renumber after delete")
-        )
+      const rel = path
+        .relative(config.outputPath, abs)
+        .split(path.sep)
+        .join("/")
+      logger.info({ file: rel }, "capture deleted")
+      await captureOrder.remove(rel)
       res.status(204).end()
+    })
+  )
+
+  const renameSchema = z.object({
+    relPath: z.string().min(1).max(400),
+    name: z.string().min(1).max(200),
+  })
+  router.patch(
+    "/items/:id/captures/rename",
+    wrap(async (req, res) => {
+      const id = req.params.id as string
+      const info = store.getPlayable(id)
+      if (!info)
+        throw new ApiError(404, "No playable item with that id.", "not_found")
+      const { relPath, name } = parseBody(renameSchema, req.body)
+      const abs = resolveInside(config.outputPath, relPath)
+      if (!abs || !CAPTURE_EXT.has(path.extname(abs).toLowerCase()))
+        throw new ApiError(404, "No such capture.", "not_found")
+      const capFolder = captureFolder(info)
+      const showFolder = safeName(info.folderName)
+      if (
+        !relPath.startsWith(`${capFolder}/`) &&
+        !relPath.startsWith(`${showFolder}/`)
+      )
+        throw new ApiError(
+          404,
+          "That file does not belong to this title.",
+          "not_found"
+        )
+      // Renamed files always end up in the title's own capture folder.
+      const targetDir = path.join(config.outputPath, capFolder)
+      const renamed = await renameCapture(abs, name, targetDir)
+      const toRel = `${capFolder}/${renamed.name}`
+      if (toRel !== relPath) await captureOrder.replace(relPath, toRel)
+      const entry = await captureEntry(renamed.absPath, toRel)
+      if (!entry) throw new ApiError(404, "No such capture.", "not_found")
+      res.json(entry)
     })
   )
 

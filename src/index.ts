@@ -7,6 +7,7 @@ import { pinoHttp } from "pino-http"
 import { config } from "./config.js"
 import { isMountPoint, readMountInfo } from "./library/mounts.js"
 import { DEFAULT_RESERVED_PATHS, SourcesStore } from "./library/sources.js"
+import { CaptureOrderStore } from "./media/capture-order.js"
 import { LibraryStore } from "./library/store.js"
 import { logger } from "./logger.js"
 import { detectCapabilities, processes } from "./media/ffmpeg.js"
@@ -148,7 +149,17 @@ async function main(): Promise<void> {
     })
   )
   app.use(express.json({ limit: "64kb" }))
-  app.use("/api", createApi({ store, sources, caps, runtime, refreshRuntime }))
+  const captureOrder = new CaptureOrderStore({
+    file: path.join(config.configPath, "captures.json"),
+    writable: runtime.configWritable,
+    log: logger,
+  })
+  await captureOrder.load()
+
+  app.use(
+    "/api",
+    createApi({ store, sources, captureOrder, caps, runtime, refreshRuntime })
+  )
 
   app.use(
     express.static(WEB_DIST, {

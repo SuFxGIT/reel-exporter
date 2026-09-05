@@ -1,12 +1,12 @@
 import { promises as fs } from "node:fs"
 import { randomBytes } from "node:crypto"
 import PQueue from "p-queue"
-import { formatTimestampForName } from "../library/naming.js"
 import type { PlayableInfo } from "../library/store.js"
 import { logger } from "../logger.js"
 import {
-  allocateCapture,
+  allocateNumbered,
   captureUrls,
+  fileVersion,
   releaseCapture,
   type CaptureTarget,
 } from "./capture.js"
@@ -374,12 +374,10 @@ class JobManager {
     const { params } = job
     const duration = params.end - params.start
     const ext = outputExt(params.format)
-    const range = `${formatTimestampForName(params.start)} to ${formatTimestampForName(params.end)}`
-    const suffix = params.format === "shorts" ? `${range} - Shorts` : range
     let target: CaptureTarget | null = null
     let tmp: string | null = null
     try {
-      target = await allocateCapture(info, suffix, ext)
+      target = await allocateNumbered(info, ext)
       internal.target = target
       tmp = `${target.absPath}.tmp.${ext}`
       const passes: Array<[string[], number, number]> =
@@ -401,13 +399,14 @@ class JobManager {
       if (!st || st.size === 0)
         throw new Error("ffmpeg wrote an empty file. Check the container logs.")
       await fs.rename(tmp, target.absPath)
+      const done = await fs.stat(target.absPath).catch(() => st)
       job.progress = 1
       job.status = "done"
       job.output = {
         relPath: target.relPath,
         name: target.name,
         size: st.size,
-        ...captureUrls(target.relPath),
+        ...captureUrls(target.relPath, fileVersion(done)),
       }
       log.info(
         {
