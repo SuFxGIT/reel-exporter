@@ -35,6 +35,9 @@ interface Rect {
   h: number
 }
 
+/** Preview stage height in pixels; fixed so the dialog never resizes. */
+const STAGE_HEIGHT = 240
+
 /**
  * Where the window sits over a picture: the largest box with the output aspect
  * that fits the picture (the frame minus detected bars, after the width squeeze),
@@ -143,11 +146,15 @@ export function CropPicker({
   }
   bound.w = Math.max(full.x + full.w, win.x + win.w) - bound.x
   bound.h = Math.max(full.y + full.h, win.y + win.h) - bound.y
-  const s = width / bound.w
-  const height = Math.round(bound.h * s)
+  // The stage has a fixed size; the drawing is fitted and centred inside it so
+  // zooming out never changes the height of the dialog.
+  const height = STAGE_HEIGHT
+  const s = Math.min(width / bound.w, height / bound.h)
+  const ox = (width - bound.w * s) / 2
+  const oy = (height - bound.h * s) / 2
   const px = (r: Rect) => ({
-    left: (r.x - bound.x) * s,
-    top: (r.y - bound.y) * s,
+    left: ox + (r.x - bound.x) * s,
+    top: oy + (r.y - bound.y) * s,
     width: r.w * s,
     height: r.h * s,
   })
@@ -157,8 +164,8 @@ export function CropPicker({
       const el = box.current
       if (!el) return
       const r = el.getBoundingClientRect()
-      const x = (clientX - r.left) / s + bound.x
-      const y = (clientY - r.top) / s + bound.y
+      const x = (clientX - r.left - ox) / s + bound.x
+      const y = (clientY - r.top - oy) / s + bound.y
       const slackX = picture.w - win.w
       const slackY = picture.h - win.h
       onChange({
@@ -177,6 +184,8 @@ export function CropPicker({
     [
       onChange,
       s,
+      ox,
+      oy,
       bound.x,
       bound.y,
       picture.x,

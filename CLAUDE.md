@@ -55,7 +55,7 @@ There is no ffmpeg on the host; anything that touches media runs in a container.
   with a per-clip palette; `exportArgs`
   is pure and unit-tested), `peaks.ts` (waveform), `frames.ts` (hover and capture
   thumbnails). All child processes go through `ffmpeg.ts`'s `ProcessRegistry`.
-- `web/src/lib/export-options.ts` holds the per-browser export choices; the popovers live in
+- `web/src/lib/export-options.ts` holds the per-browser export choices; the options dialogs live in
   `web/src/components/player/ExportOptions.tsx`.
 - `web/src/components/sources/SourcesDialog.tsx` (+ `FolderBrowser.tsx`, `web/src/lib/sources.ts`)
   is the one management dialog: add/remove sources, browse, tick folders; edits are batched

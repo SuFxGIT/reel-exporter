@@ -18,13 +18,16 @@ import {
   CROP_ZOOM_RANGE,
 } from "@/lib/export-options"
 import type { Selection } from "@/hooks/useSelection"
+import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover"
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from "@/components/ui/dialog"
 import { Slider } from "@/components/ui/slider"
 import { Switch } from "@/components/ui/switch"
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group"
@@ -138,6 +141,7 @@ function SplitButton({
   onPrimary,
   primaryVariant,
   optionsLabel,
+  dialogClassName,
   children,
 }: {
   label: string
@@ -148,6 +152,8 @@ function SplitButton({
   onPrimary: () => void
   primaryVariant: "default" | "secondary"
   optionsLabel: string
+  /** Sizes the options dialog; give it a fixed size so it never jumps while editing. */
+  dialogClassName: string
   children: React.ReactNode
 }) {
   return (
@@ -172,8 +178,8 @@ function SplitButton({
         </TooltipTrigger>
         <TooltipContent>{tooltip}</TooltipContent>
       </Tooltip>
-      <Popover>
-        <PopoverTrigger
+      <Dialog>
+        <DialogTrigger
           render={
             <Button
               variant={primaryVariant}
@@ -184,9 +190,19 @@ function SplitButton({
           }
         >
           <ChevronDown className="size-3.5" />
-        </PopoverTrigger>
-        <PopoverContent>{children}</PopoverContent>
-      </Popover>
+        </DialogTrigger>
+        <DialogContent
+          className={cn(
+            "grid-rows-[auto_minmax(0,1fr)] gap-3 overflow-hidden",
+            dialogClassName
+          )}
+        >
+          <DialogHeader>
+            <DialogTitle>{optionsLabel}</DialogTitle>
+          </DialogHeader>
+          <div className="min-h-0 overflow-y-auto">{children}</div>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
@@ -246,6 +262,7 @@ export function ScreenshotButton({
       onPrimary={onCapture}
       primaryVariant="secondary"
       optionsLabel="Screenshot options"
+      dialogClassName="w-[360px] sm:max-w-[360px]"
     >
       <div className="flex flex-col gap-3">
         <Field label="Format">
@@ -398,6 +415,7 @@ export function ExportButton({
       onPrimary={onExport}
       primaryVariant="default"
       optionsLabel="Export options"
+      dialogClassName="h-[min(720px,calc(100vh-2rem))] w-[440px] sm:max-w-[440px]"
     >
       <div className="flex flex-col gap-3">
         <Field label="Format">
