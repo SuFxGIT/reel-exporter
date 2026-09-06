@@ -1,4 +1,4 @@
-import { Camera, ChevronDown, Loader2, Scissors } from "lucide-react"
+import { Camera, Loader2, Scissors, SlidersHorizontal } from "lucide-react"
 import { frameUrl, type BarsResponse, type ItemDetail } from "@/lib/api"
 import { useBars } from "@/lib/queries"
 import { CropPicker, clampWidth, clampZoom } from "./CropPicker"
@@ -90,8 +90,8 @@ function Field({
   children: React.ReactNode
 }) {
   return (
-    <div className="flex items-center justify-between gap-3">
-      <span className="text-muted-foreground text-xs">{label}</span>
+    <div className="flex min-w-0 items-center justify-between gap-3">
+      <span className="text-muted-foreground shrink-0 text-xs">{label}</span>
       {children}
     </div>
   )
@@ -189,7 +189,7 @@ function SplitButton({
             />
           }
         >
-          <ChevronDown className="size-3.5" />
+          <SlidersHorizontal className="size-3.5" />
         </DialogTrigger>
         <DialogContent
           className={cn(
@@ -200,7 +200,9 @@ function SplitButton({
           <DialogHeader>
             <DialogTitle>{optionsLabel}</DialogTitle>
           </DialogHeader>
-          <div className="min-h-0 overflow-y-auto">{children}</div>
+          <div className="min-h-0 min-w-0 overflow-x-hidden overflow-y-auto">
+            {children}
+          </div>
         </DialogContent>
       </Dialog>
     </div>

@@ -99,7 +99,7 @@ function IconButton({
   )
 }
 
-/** A small outlined text button for the in and out marks. */
+/** A small amber text button for the in and out marks. */
 function MarkButton({
   label,
   onClick,
@@ -116,14 +116,14 @@ function MarkButton({
       <TooltipTrigger
         render={
           <Button
-            variant="outline"
+            variant="default"
             size="sm"
             onClick={(e) => {
               onClick()
               ;(e.currentTarget as HTMLElement).blur()
             }}
             aria-label={label}
-            className={cn("min-w-10 px-2 text-xs font-medium", className)}
+            className={cn("min-w-10 px-2 text-xs font-semibold", className)}
           />
         }
       >
@@ -214,11 +214,11 @@ export function ControlBar({
       <div className="bg-border mx-1 h-5 w-px" />
 
       <div className="flex items-center gap-1.5">
-        <div className="flex -space-x-px">
+        <div className="flex">
           <MarkButton
             label="Set in point (I)"
             onClick={actions.setIn}
-            className="rounded-r-none"
+            className="rounded-r-none border-r border-black/20"
           >
             In
           </MarkButton>
