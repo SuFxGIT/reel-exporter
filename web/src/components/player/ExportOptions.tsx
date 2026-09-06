@@ -77,10 +77,9 @@ export function frameSize(
   const pw = crop ? crop.w * sar : v.displayWidth
   const ph = crop ? crop.h : v.height
   const wide = pw / ph > ratio
-  if (fit === "crop" || fit === "stretch") {
-    const z = fit === "crop" ? zoom : 1
-    const w = (wide ? ph * ratio : pw) / z
-    const h = (wide ? ph : pw / ratio) / z
+  if (fit === "crop") {
+    const w = (wide ? ph * ratio : pw) / zoom
+    const h = (wide ? ph : pw / ratio) / zoom
     return { width: Math.floor(w / 2) * 2, height: Math.floor(h / 2) * 2 }
   }
   const w = wide ? pw : ph * ratio
@@ -459,7 +458,6 @@ export function ExportButton({
                   ["blur", "Blur"],
                   ["crop", "Crop"],
                   ["bars", "Bars"],
-                  ["stretch", "Stretch"],
                 ]}
                 onChange={(fit) => onChange({ fit })}
               />
@@ -545,11 +543,5 @@ export function ExportButton({
 }
 
 function fitLabel(fit: ClipOptions["fit"]): string {
-  return fit === "crop"
-    ? "Crop"
-    : fit === "bars"
-      ? "Bars"
-      : fit === "stretch"
-        ? "Stretch"
-        : "Blur"
+  return fit === "crop" ? "Crop" : fit === "bars" ? "Bars" : "Blur"
 }

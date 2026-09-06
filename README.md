@@ -18,7 +18,7 @@ Reel Exporter points at a read-only media share, shows your movies and shows in 
 
 - **Plays everything.** MKV, MP4, AVI, TS and friends with H.264, HEVC, AV1, 10-bit and HDR video and AC3, DTS, TrueHD or AAC audio all stream as an on-the-fly HLS preview (H.264 and AAC, up to 1080p). Seeking anywhere in a 60 GB remux starts within a couple of seconds.
 - **Frame-accurate screenshots** as PNG, JPEG or WebP (with a quality slider for the lossy formats) at the source resolution or scaled to 1080p, 720p or any width. HDR10, HLG and Dolby Vision (profiles 7 and 8) are tone-mapped to SDR so grabs look right.
-- **Clip trimming.** Set in and out points on the timeline, then export the range cut precisely from the original: a **Video** (MP4, H.264 and AAC) at source resolution or 1080p/720p in three quality levels, kept at the source aspect or fitted into a 9:16, 4:5, 1:1, 4:3 or 16:9 frame with a blurred, cropped, letterboxed or stretched fit, or a **GIF** up to 30 seconds. Black bars baked into the picture are always trimmed. All with progress and cancel.
+- **Clip trimming.** Set in and out points on the timeline, then export the range cut precisely from the original: a **Video** (MP4, H.264 and AAC) at source resolution or 1080p/720p in three quality levels, kept at the source aspect or fitted into a 9:16, 4:5, 1:1, 4:3 or 16:9 frame with a blurred, cropped or letterboxed fit, or a **GIF** up to 30 seconds. Black bars baked into the picture are always trimmed. All with progress and cancel.
 - **A timeline built for precision.** Waveform, ruler, minimap, drag-to-select, draggable in and out handles, zoom at the pointer with Ctrl and the mouse wheel, frame stepping, and hover thumbnails.
 - **Your folders, your libraries.** Mount one or more media shares read-only, browse them in the app and tick exactly which folders become libraries (a whole `movies 4k` share or a single sub-folder). Unticked folders are never scanned. Search, lazy-loaded seasons and episodes, and periodic rescans included.
 
@@ -111,7 +111,7 @@ The small arrow next to **Screenshot** and **Export** opens the options for that
 | Aspect (Video) | Source (the picture's own aspect) or a 9:16, 4:5, 1:1, 4:3 or 16:9 frame |
 | Size (Video) | Source, 1080p or 720p. For the Source aspect this is a width limit (1920 or 1280). For a fixed aspect it is the short side (1080×1920, 1920×1080, 1080×1080, ...), and Source cuts the crop at native resolution with no scaling |
 | Quality (Video) | High (CRF 18), Balanced (CRF 20) or Small (CRF 24, faster) |
-| Fit (fixed aspects) | Blur (picture centred over a blurred copy), Crop (fill the frame; drag the crop window over the preview to choose what stays and zoom up to 3× with the slider or the wheel) Bars (black letterbox) or Stretch (squeeze the picture to the frame; nothing is cropped but the shape changes) |
+| Fit (fixed aspects) | Blur (picture centred over a blurred copy), Crop (fill the frame; drag the crop window over the preview to choose what stays and zoom up to 3× with the slider or the wheel) or Bars (black letterbox) |
 | Black bars (Video) | Always trimmed: bars baked into the picture are detected with ffmpeg's `cropdetect` on a few frames of the range and left out of the export (pass `"trimBars":false` to the API to keep them) |
 | Width and frame rate (GIF) | 320, 480 or 640 px wide at 10, 15 or 20 fps; GIFs are limited to 30 seconds |
 | Audio (Video) | The track selected in the header, or none |

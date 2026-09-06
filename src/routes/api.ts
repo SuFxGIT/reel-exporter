@@ -739,7 +739,7 @@ export function createApi(deps: ApiDeps): Router {
     /** Video, fixed aspects only: short side of the output; omit for native resolution. */
     shortSide: z.number().int().min(160).max(4320).optional(),
     /** Video, fixed aspects only: how the picture fills the frame. */
-    fit: z.enum(["blur", "crop", "bars", "stretch"]).default("blur"),
+    fit: z.enum(["blur", "crop", "bars"]).default("blur"),
     /** Video only: detect and drop black bars baked into the picture. */
     trimBars: z.boolean().default(true),
     /** Crop fit only: window position, 0..1 from the left and top. */

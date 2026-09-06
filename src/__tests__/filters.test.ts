@@ -369,30 +369,3 @@ describe("frameFilters with another aspect", () => {
     )
   })
 })
-
-describe("frameFilters with the stretch fit", () => {
-  it("squeezes the picture to the frame without cropping", () => {
-    const fixed = frameFilters(sdr(3840, 2160), "stretch", {
-      aspect: "9:16",
-      shortSide: 1080,
-    })
-    expect(
-      fixed.endsWith(
-        "format=yuv420p,scale=w=1080:h=1920:flags=lanczos,setsar=1"
-      )
-    ).toBe(true)
-    expect(fixed).toContain("scale=w='min(3414,iw*sar)'")
-    // Native: keep the height, shrink the width to the aspect.
-    const native = frameFilters(sdr(3840, 2160), "stretch", { aspect: "9:16" })
-    expect(native).toBe(
-      "format=yuv420p,scale=w=1214:h=2160:flags=lanczos,setsar=1"
-    )
-    expect(
-      frameFor("9:16", "stretch", { width: 3840, height: 2160 }, undefined, 3)
-    ).toEqual({
-      width: 1214,
-      height: 2160,
-      native: true,
-    })
-  })
-})
