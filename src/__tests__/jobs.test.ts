@@ -23,7 +23,7 @@ const base = { start: 10, end: 15, audio: 0, quality: "balanced" as const }
 const video = {
   format: "mp4" as const,
   aspect: "source" as const,
-  fit: "blur" as const,
+  background: "blur" as const,
   trimBars: true,
 }
 const at = (args: string[], flag: string) => args[args.indexOf(flag) + 1]
@@ -49,7 +49,7 @@ describe("exportArgs", () => {
     expect(a).toContain("+faststart")
   })
 
-  it("builds a framed MP4 with the fit chain", () => {
+  it("builds a framed MP4 with the placement chain", () => {
     const a = exportArgs(
       "/m/a.mkv",
       probe(),
@@ -58,7 +58,8 @@ describe("exportArgs", () => {
         ...video,
         aspect: "9:16",
         shortSide: 1080,
-        fit: "bars",
+        zoom: 0.5,
+        background: "black",
         audio: -1,
       },
       "/o/x.tmp.mp4"
@@ -69,7 +70,7 @@ describe("exportArgs", () => {
     expect(a).not.toContain("0:a:0")
   })
 
-  it("drops detected bars before the fit and honours the crop focus", () => {
+  it("drops detected bars before placing and honours the focus", () => {
     const a = exportArgs(
       "/m/a.mkv",
       probe(),
@@ -78,7 +79,6 @@ describe("exportArgs", () => {
         ...video,
         aspect: "9:16",
         shortSide: 1080,
-        fit: "crop",
         focus: { x: 0.25, y: 0.5 },
         audio: -1,
       },
@@ -88,12 +88,12 @@ describe("exportArgs", () => {
     )
     const vf = at(a, "-vf")
     expect(vf.indexOf("crop=w=1920:h=800:x=0:y=140")).toBeLessThan(
-      vf.indexOf("scale=w=1080")
+      vf.indexOf("scale=w=4608:h=1920")
     )
-    expect(vf.endsWith("x=(iw-1080)*0.250:y=(ih-1920)*0.500")).toBe(true)
+    expect(vf.endsWith("crop=w=1080:h=1920:x=882:y=0")).toBe(true)
   })
 
-  it("passes the crop zoom through to the fill scale", () => {
+  it("passes zoom and width through to the placement", () => {
     const a = exportArgs(
       "/m/a.mkv",
       probe(),
@@ -102,20 +102,15 @@ describe("exportArgs", () => {
         ...video,
         aspect: "9:16",
         shortSide: 1080,
-        fit: "crop",
-        focus: { x: 0.5, y: 0.5 },
         zoom: 1.5,
+        widthScale: 0.5,
         audio: -1,
       },
       "/o/x.tmp.mp4"
     )
     const vf = at(a, "-vf")
-    expect(vf).toContain(
-      "scale=w=1620:h=2880:force_original_aspect_ratio=increase"
-    )
-    expect(
-      vf.endsWith("crop=w=1080:h=1920:x=(iw-1080)*0.500:y=(ih-1920)*0.500")
-    ).toBe(true)
+    expect(vf).toContain("scale=w=2560:h=2880:flags=lanczos,setsar=1")
+    expect(vf.endsWith("crop=w=1080:h=1920:x=740:y=480")).toBe(true)
   })
 
   it("trims bars from a source-aspect export and keeps the width limit", () => {
@@ -142,18 +137,16 @@ describe("exportArgs", () => {
     )
   })
 
-  it("crops a native frame without any scale step", () => {
+  it("crops a native frame at the picture's own size", () => {
     const a = exportArgs(
       "/m/a.mkv",
       probe(),
-      { ...base, ...video, aspect: "1:1", fit: "crop", audio: -1 },
+      { ...base, ...video, aspect: "1:1", audio: -1 },
       "/o/x.tmp.mp4"
     )
-    const vf = at(a, "-vf")
-    expect(
-      vf.endsWith("crop=w=1080:h=1080:x=(iw-1080)*0.500:y=(ih-1080)*0.500")
-    ).toBe(true)
-    expect(vf).not.toContain("force_original_aspect_ratio")
+    expect(at(a, "-vf")).toBe(
+      "format=yuv420p,scale=w=1920:h=1080:flags=lanczos,setsar=1,crop=w=1080:h=1080:x=420:y=0"
+    )
   })
 
   it("builds a two-pass GIF without audio", () => {

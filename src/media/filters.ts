@@ -130,10 +130,9 @@ export function fullResFilters(
 }
 
 // ---------------------------------------------------------------------------
-// Framed output: the picture fitted into a fixed aspect (9:16, 1:1, 16:9, ...)
+// Framed output: the picture placed in a fixed aspect (9:16, 1:1, 16:9, ...)
 // ---------------------------------------------------------------------------
 
-export type FrameFit = "blur" | "crop" | "bars"
 export type FrameAspect = "9:16" | "4:5" | "1:1" | "4:3" | "16:9"
 export const FRAME_ASPECTS: FrameAspect[] = [
   "9:16",
@@ -143,6 +142,8 @@ export const FRAME_ASPECTS: FrameAspect[] = [
   "16:9",
 ]
 export const DEFAULT_FRAME_ASPECT: FrameAspect = "9:16"
+/** What shows where the picture does not cover the frame. */
+export type FrameBackground = "black" | "blur"
 
 const FRAME_RATIOS: Record<FrameAspect, number> = {
   "9:16": 9 / 16,
@@ -152,11 +153,21 @@ const FRAME_RATIOS: Record<FrameAspect, number> = {
   "16:9": 16 / 9,
 }
 
+export const MIN_CROP_ZOOM = 0.25
 export const MAX_CROP_ZOOM = 4
+export const MIN_WIDTH_SCALE = 0.5
+export const MAX_WIDTH_SCALE = 1.5
 const clampZoom = (z: number | undefined): number =>
-  Number.isFinite(z) ? Math.min(MAX_CROP_ZOOM, Math.max(1, z as number)) : 1
+  Number.isFinite(z)
+    ? Math.min(MAX_CROP_ZOOM, Math.max(MIN_CROP_ZOOM, z as number))
+    : 1
+const clampWidth = (k: number | undefined): number =>
+  Number.isFinite(k)
+    ? Math.min(MAX_WIDTH_SCALE, Math.max(MIN_WIDTH_SCALE, k as number))
+    : 1
+const clamp01 = (n: number | undefined): number =>
+  Number.isFinite(n) ? Math.min(1, Math.max(0, n as number)) : 0.5
 
-const fraction = (n: number): string => Math.min(1, Math.max(0, n)).toFixed(3)
 const even = (n: number): number => Math.round(n / 2) * 2
 const evenDown = (n: number): number => Math.floor(n / 2) * 2
 const evenUp = (n: number): number => Math.ceil(n / 2) * 2
@@ -168,18 +179,24 @@ export interface Frame {
   native: boolean
 }
 
+export interface Picture {
+  width: number
+  height: number
+}
+
 /**
  * The output frame for an aspect. With `shortSide` (1080, 720, ...) the frame is
- * that many pixels on its short side. Without it the frame is native: for the
- * crop fit it is the largest box of that aspect inside the picture (divided by
- * `zoom`), for blur and bars the smallest box that contains the picture.
+ * that many pixels on its short side. Without it the frame is native: the largest
+ * box of that aspect inside the picture (after the width squeeze), divided by the
+ * zoom when zooming in. Zooming out never grows a native frame; the picture shrinks
+ * inside it instead.
  */
 export function frameFor(
   aspect: FrameAspect,
-  fit: FrameFit,
-  picture: { width: number; height: number },
+  picture: Picture,
   shortSide?: number,
-  zoom = 1
+  zoom = 1,
+  widthScale = 1
 ): Frame {
   const ratio = FRAME_RATIOS[aspect] ?? FRAME_RATIOS[DEFAULT_FRAME_ASPECT]
   if (shortSide) {
@@ -195,45 +212,87 @@ export function frameFor(
           native: false,
         }
   }
-  const wide = picture.width / picture.height > ratio
-  if (fit === "crop") {
-    const z = clampZoom(zoom)
-    const w = wide ? picture.height * ratio : picture.width
-    const h = wide ? picture.height : picture.width / ratio
-    return { width: evenDown(w / z), height: evenDown(h / z), native: true }
+  const pw = picture.width * clampWidth(widthScale)
+  const ph = picture.height
+  const wide = pw / ph > ratio
+  const z = Math.max(1, clampZoom(zoom))
+  const w = wide ? ph * ratio : pw
+  const h = wide ? ph : pw / ratio
+  return { width: evenDown(w / z), height: evenDown(h / z), native: true }
+}
+
+export interface Placement {
+  /** The picture after the width squeeze, the fill scale and the zoom. */
+  width: number
+  height: number
+  /** The part of it that lands in the frame, and where it is cut from. */
+  cropW: number
+  cropH: number
+  cropX: number
+  cropY: number
+  /** Where that part sits in the frame. */
+  padX: number
+  padY: number
+  /** True when the picture covers the whole frame. */
+  covers: boolean
+}
+
+/**
+ * Where the picture goes in the frame. At zoom 1 and width 100 % the picture is
+ * scaled so it just covers the frame, then the window at `focus` is cut out. Zoom
+ * grows or shrinks it from there; below 1 it stops covering the frame and the
+ * background shows. Focus places the window over the picture, and the picture
+ * inside the frame, 0..1 from the left and top.
+ */
+export function placePicture(
+  frame: Frame,
+  picture: Picture,
+  zoom = 1,
+  widthScale = 1,
+  focus: { x: number; y: number } = { x: 0.5, y: 0.5 }
+): Placement {
+  const k = clampWidth(widthScale)
+  const z = clampZoom(zoom)
+  const pw = picture.width * k
+  const ph = picture.height
+  const s = Math.max(frame.width / pw, frame.height / ph)
+  const width = Math.max(2, even(pw * s * z))
+  const height = Math.max(2, even(ph * s * z))
+  const cropW = Math.min(width, frame.width)
+  const cropH = Math.min(height, frame.height)
+  const fx = clamp01(focus.x)
+  const fy = clamp01(focus.y)
+  return {
+    width,
+    height,
+    cropW,
+    cropH,
+    cropX: even((width - cropW) * fx),
+    cropY: even((height - cropH) * fy),
+    padX: even((frame.width - cropW) * fx),
+    padY: even((frame.height - cropH) * fy),
+    covers: cropW === frame.width && cropH === frame.height,
   }
-  const w = wide ? picture.width : picture.height * ratio
-  const h = wide ? picture.width / ratio : picture.height
-  return { width: evenUp(w), height: evenUp(h), native: true }
 }
 
 /**
  * Width to downscale to before tone-mapping so the expensive filters run at
- * the size the frame needs rather than at source size. Native frames never scale.
+ * the size the placement needs rather than at source size. Undefined when the
+ * source is already no bigger than that.
  */
 export function framePrescaleWidth(
-  probe: ProbeResult,
-  fit: FrameFit,
-  frame: Frame,
-  picture?: { width: number; height: number },
-  zoom = 1
+  placement: Placement,
+  picture: Picture,
+  widthScale = 1
 ): number | undefined {
-  if (frame.native) return undefined
-  const v = probe.video
-  if (!v || !v.height) return undefined
-  const width = picture?.width ?? v.displayWidth
-  const height = picture?.height ?? v.height
-  if (!height) return undefined
-  const atHeight = Math.round((frame.height * width) / height)
-  const wanted =
-    fit === "bars"
-      ? Math.min(frame.width, atHeight)
-      : fit === "crop"
-        ? Math.round(Math.max(frame.width, atHeight) * clampZoom(zoom))
-        : Math.max(frame.width, atHeight)
-  // 4:2:0 output needs even dimensions; round up so nothing is lost.
-  const box = wanted + (wanted % 2)
-  return box < width ? box : undefined
+  const k = clampWidth(widthScale)
+  const wanted = evenUp(
+    Math.max(
+      placement.width / k,
+      (placement.height * picture.width) / picture.height
+    )
+  )
+  return wanted < picture.width ? wanted : undefined
 }
 
 export interface FrameOptions {
@@ -243,82 +302,75 @@ export interface FrameOptions {
   shortSide?: number
   /** Picture rectangle without the black bars; applied before scaling. */
   bars?: Crop
-  /** Where the crop window sits, 0..1 from the left/top; 0.5 is centred. */
+  /** Where the window sits over the picture, 0..1 from the left/top; 0.5 is centred. */
   focus?: { x: number; y: number }
-  /** Crop fit only: how much tighter than the widest window; 1 is the whole picture. */
+  /** 1 covers the frame exactly; above it crops tighter, below it shows the background. */
   zoom?: number
+  /** Horizontal squeeze or stretch of the picture; 1 is its real width. */
+  widthScale?: number
+  /** What fills the frame around the picture; blur when omitted. */
+  background?: FrameBackground
 }
 
-/** Picture centred over a blurred copy. Blur a small copy and scale it back up: same look, a fraction of the cost. */
-const blurFit = ({ width: W, height: H }: Frame): string => {
+/** Blurred, enlarged copy of the picture filling the frame. Blur a small copy and scale it back up: same look, a fraction of the cost. */
+const blurBackground = ({ width: W, height: H }: Frame): string => {
   const w = even(W / 4)
   const h = even(H / 4)
+  return `scale=w=${w}:h=${h}:force_original_aspect_ratio=increase:flags=bicubic,crop=w=${w}:h=${h},gblur=sigma=8,scale=w=${W}:h=${H}:flags=bicubic`
+}
+
+/** Squeeze, scale and cut the picture; then pad or overlay it when it does not cover the frame. */
+function placementChain(
+  frame: Frame,
+  p: Placement,
+  background: FrameBackground
+): string {
+  // A non-uniform scale would otherwise keep the display aspect by changing the SAR.
+  const fg = `scale=w=${p.width}:h=${p.height}:flags=lanczos,setsar=1,crop=w=${p.cropW}:h=${p.cropH}:x=${p.cropX}:y=${p.cropY}`
+  if (p.covers) return fg
+  if (background === "black")
+    return `${fg},pad=w=${frame.width}:h=${frame.height}:x=${p.padX}:y=${p.padY}:color=black`
   return [
     "split[bg][fg]",
-    `[bg]scale=w=${w}:h=${h}:force_original_aspect_ratio=increase:flags=bicubic,crop=w=${w}:h=${h},gblur=sigma=8,scale=w=${W}:h=${H}:flags=bicubic[bgb]`,
-    `[fg]scale=w=${W}:h=${H}:force_original_aspect_ratio=decrease:force_divisible_by=2:flags=lanczos[fgs]`,
-    "[bgb][fgs]overlay=x=(W-w)/2:y=(H-h)/2:format=yuv420,format=yuv420p",
+    `[bg]${blurBackground(frame)}[bgb]`,
+    `[fg]${fg}[fgs]`,
+    `[bgb][fgs]overlay=x=${p.padX}:y=${p.padY}:format=yuv420,format=yuv420p`,
   ].join(";")
 }
 
-/** Picture centred on black. */
-const barsFit = ({ width: W, height: H }: Frame): string =>
-  `scale=w=${W}:h=${H}:force_original_aspect_ratio=decrease:force_divisible_by=2:flags=lanczos,pad=w=${W}:h=${H}:x=(ow-iw)/2:y=(oh-ih)/2:color=black`
-
-/**
- * Fill the frame, then cut the window at the chosen position. Zoom scales the
- * picture past the frame so the window covers 1/zoom of it; the crop stays the
- * frame size, so the aspect ratio never changes. A native frame is already the
- * window, so it is cut straight out of the picture.
- */
-const cropFit = (
-  { width: W, height: H, native }: Frame,
-  focus: { x: number; y: number } = { x: 0.5, y: 0.5 },
-  zoom = 1
-): string => {
-  const window = `crop=w=${W}:h=${H}:x=(iw-${W})*${fraction(focus.x)}:y=(ih-${H})*${fraction(focus.y)}`
-  if (native) return window
-  const z = clampZoom(zoom)
-  return `scale=w=${even(W * z)}:h=${even(H * z)}:force_original_aspect_ratio=increase:flags=lanczos,${window}`
-}
-
-/** Framed output: drop the bars, fit the picture, fill the frame. */
+/** Framed output: drop the bars, place the picture, fill the rest with the background. */
 export function frameFilters(
   probe: ProbeResult,
-  fit: FrameFit,
   opts: FrameOptions = {}
 ): string {
   const v = probe.video
   const sar = v?.sar ?? 1
-  const picture = opts.bars
+  const picture: Picture = opts.bars
     ? { width: opts.bars.w * sar, height: opts.bars.h }
     : { width: v?.displayWidth ?? 1920, height: v?.height ?? 1080 }
   const frame = frameFor(
     opts.aspect ?? DEFAULT_FRAME_ASPECT,
-    fit,
     picture,
     opts.shortSide,
-    opts.zoom
+    opts.zoom,
+    opts.widthScale
+  )
+  const placement = placePicture(
+    frame,
+    picture,
+    opts.zoom,
+    opts.widthScale,
+    opts.focus
   )
   return [
     ...prepFilters(
       probe,
       "field",
-      framePrescaleWidth(
-        probe,
-        fit,
-        frame,
-        opts.bars ? picture : undefined,
-        opts.zoom
-      ),
+      framePrescaleWidth(placement, picture, opts.widthScale),
       opts.bars
     ),
     "format=yuv420p",
-    fit === "crop"
-      ? cropFit(frame, opts.focus, opts.zoom)
-      : fit === "blur"
-        ? blurFit(frame)
-        : barsFit(frame),
+    placementChain(frame, placement, opts.background ?? "blur"),
   ].join(",")
 }
 

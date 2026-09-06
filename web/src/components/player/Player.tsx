@@ -208,10 +208,10 @@ export function Player({ item, onToggleSidebar, onClose }: Props) {
                   ? { maxWidth: maxWidthFor(clipOpts.size) }
                   : {
                       shortSide: shortSideFor(clipOpts.size),
-                      fit: clipOpts.fit,
-                      ...(clipOpts.fit === "crop"
-                        ? { focus: clipOpts.cropFocus, zoom: clipOpts.cropZoom }
-                        : {}),
+                      background: clipOpts.background,
+                      focus: clipOpts.cropFocus,
+                      zoom: clipOpts.cropZoom,
+                      widthScale: clipOpts.cropWidth,
                     }),
               }
         const wantsAudio = clipOpts.format !== "gif" && clipOpts.audio

@@ -178,7 +178,7 @@ export interface Job {
     maxWidth?: number
     aspect?: "source" | "9:16" | "4:5" | "1:1" | "4:3" | "16:9"
     shortSide?: number
-    fit?: "blur" | "crop" | "bars"
+    background?: "black" | "blur"
     fps?: number
     width?: number
   }
@@ -296,9 +296,10 @@ export const api = {
       aspect?: "source" | "9:16" | "4:5" | "1:1" | "4:3" | "16:9"
       maxWidth?: number
       shortSide?: number
-      fit?: "blur" | "crop" | "bars"
+      background?: "black" | "blur"
       focus?: { x: number; y: number }
       zoom?: number
+      widthScale?: number
       fps?: number
       width?: number
     }

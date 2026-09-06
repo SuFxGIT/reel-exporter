@@ -1,12 +1,7 @@
 import { Camera, ChevronDown, Loader2, Scissors } from "lucide-react"
 import { frameUrl, type BarsResponse, type ItemDetail } from "@/lib/api"
 import { useBars } from "@/lib/queries"
-import {
-  CropPicker,
-  MAX_CROP_ZOOM,
-  MIN_CROP_ZOOM,
-  clampZoom,
-} from "./CropPicker"
+import { CropPicker, clampWidth, clampZoom } from "./CropPicker"
 import {
   GIF_MAX_SECONDS,
   maxWidthFor,
@@ -19,7 +14,8 @@ import {
   shortSideFor,
   type ExportAspect,
   type FrameAspect,
-  type FrameFit,
+  CROP_WIDTH_RANGE,
+  CROP_ZOOM_RANGE,
 } from "@/lib/export-options"
 import type { Selection } from "@/hooks/useSelection"
 import { Button } from "@/components/ui/button"
@@ -55,15 +51,15 @@ const even = (n: number) => Math.round(n / 2) * 2
 
 /**
  * Output size of a framed export. Mirrors the server: a short side scales the
- * frame, otherwise the frame is native (the crop window itself, or the smallest
- * box of that aspect around the picture without its bars).
+ * frame, otherwise the frame is native (the largest box of the aspect inside the
+ * squeezed picture, divided by the zoom when zooming in).
  */
 export function frameSize(
   item: ItemDetail,
   aspect: FrameAspect,
-  fit: FrameFit,
   shortSide: number | undefined,
   zoom: number,
+  widthScale: number,
   crop: BarsResponse["crop"]
 ): { width: number; height: number } | null {
   const v = item.video
@@ -74,17 +70,13 @@ export function frameSize(
       ? { width: shortSide, height: even(shortSide / ratio) }
       : { width: even(shortSide * ratio), height: shortSide }
   const sar = v.displayWidth / v.width
-  const pw = crop ? crop.w * sar : v.displayWidth
+  const pw = (crop ? crop.w * sar : v.displayWidth) * widthScale
   const ph = crop ? crop.h : v.height
   const wide = pw / ph > ratio
-  if (fit === "crop") {
-    const w = (wide ? ph * ratio : pw) / zoom
-    const h = (wide ? ph : pw / ratio) / zoom
-    return { width: Math.floor(w / 2) * 2, height: Math.floor(h / 2) * 2 }
-  }
-  const w = wide ? pw : ph * ratio
-  const h = wide ? pw / ratio : ph
-  return { width: Math.ceil(w / 2) * 2, height: Math.ceil(h / 2) * 2 }
+  const z = Math.max(1, zoom)
+  const w = (wide ? ph * ratio : pw) / z
+  const h = (wide ? ph : pw / ratio) / z
+  return { width: Math.floor(w / 2) * 2, height: Math.floor(h / 2) * 2 }
 }
 
 function Field({
@@ -361,9 +353,9 @@ export function ExportButton({
         ? frameSize(
             item,
             options.aspect as FrameAspect,
-            options.fit,
             shortSide,
-            options.fit === "crop" ? options.cropZoom : 1,
+            options.cropZoom,
+            options.cropWidth,
             crop
           )
         : outputSize(item, maxWidthFor(options.size))
@@ -388,7 +380,7 @@ export function ExportButton({
     format === "gif"
       ? `GIF${sizeText} · ${options.gifFps} fps · ${GIF_MAX_SECONDS} s max`
       : framed
-        ? `MP4 H.264 · ${options.aspect}${sizeText}${shortSide ? "" : " native"} · ${fitLabel(options.fit)}${options.fit === "crop" && options.cropZoom !== 1 ? ` ${options.cropZoom.toFixed(2)}×` : ""} · bars trimmed${tail}`
+        ? `MP4 H.264 · ${options.aspect}${sizeText}${shortSide ? "" : " native"}${options.cropZoom !== 1 ? ` · ${options.cropZoom.toFixed(2)}×` : ""}${options.cropWidth !== 1 ? ` · ${Math.round(options.cropWidth * 100)}% wide` : ""} · ${options.background} · bars trimmed${tail}`
         : `MP4 H.264${sizeText} · CRF ${options.quality === "high" ? 18 : options.quality === "small" ? 24 : 20} · bars trimmed${tail}`
   const buttonLabel = !selection
     ? "Set in and out first"
@@ -451,51 +443,77 @@ export function ExportButton({
         )}
         {framed && (
           <>
-            <Field label="Fit">
+            <CropPicker
+              item={item}
+              previewUrl={frameUrl(item.id, rangeStart, 640)}
+              ratio={FRAME_RATIOS[options.aspect as FrameAspect]}
+              focus={options.cropFocus}
+              zoom={options.cropZoom}
+              widthScale={options.cropWidth}
+              background={options.background}
+              bars={(bars.data ?? null) as BarsResponse | null}
+              onChange={(patch) =>
+                onChange({
+                  ...(patch.focus ? { cropFocus: patch.focus } : {}),
+                  ...(patch.zoom !== undefined ? { cropZoom: patch.zoom } : {}),
+                  ...(patch.widthScale !== undefined
+                    ? { cropWidth: patch.widthScale }
+                    : {}),
+                })
+              }
+            />
+            <Field label="Zoom">
+              <div className="flex items-center gap-2">
+                <Slider
+                  className="w-28"
+                  min={CROP_ZOOM_RANGE.min}
+                  max={CROP_ZOOM_RANGE.max}
+                  step={0.05}
+                  value={options.cropZoom}
+                  onValueChange={(v) =>
+                    onChange({
+                      cropZoom: clampZoom(Array.isArray(v) ? v[0]! : v),
+                    })
+                  }
+                  aria-label="Zoom"
+                />
+                <span className="tnum text-muted-foreground w-9 text-right text-xs">
+                  {options.cropZoom.toFixed(2)}×
+                </span>
+              </div>
+            </Field>
+            <Field label="Width">
+              <div className="flex items-center gap-2">
+                <Slider
+                  className="w-28"
+                  min={CROP_WIDTH_RANGE.min * 100}
+                  max={CROP_WIDTH_RANGE.max * 100}
+                  step={5}
+                  value={Math.round(options.cropWidth * 100)}
+                  onValueChange={(v) =>
+                    onChange({
+                      cropWidth: clampWidth(
+                        (Array.isArray(v) ? v[0]! : v) / 100
+                      ),
+                    })
+                  }
+                  aria-label="Picture width"
+                />
+                <span className="tnum text-muted-foreground w-9 text-right text-xs">
+                  {Math.round(options.cropWidth * 100)}%
+                </span>
+              </div>
+            </Field>
+            <Field label="Background">
               <Choice
-                value={options.fit}
+                value={options.background}
                 options={[
+                  ["black", "Black"],
                   ["blur", "Blur"],
-                  ["crop", "Crop"],
-                  ["bars", "Bars"],
                 ]}
-                onChange={(fit) => onChange({ fit })}
+                onChange={(background) => onChange({ background })}
               />
             </Field>
-            {options.fit === "crop" && (
-              <>
-                <CropPicker
-                  item={item}
-                  previewUrl={frameUrl(item.id, rangeStart, 640)}
-                  ratio={FRAME_RATIOS[options.aspect as FrameAspect]}
-                  focus={options.cropFocus}
-                  onChange={(cropFocus) => onChange({ cropFocus })}
-                  zoom={options.cropZoom}
-                  onZoomChange={(cropZoom) => onChange({ cropZoom })}
-                  bars={(bars.data ?? null) as BarsResponse | null}
-                />
-                <Field label="Zoom">
-                  <div className="flex items-center gap-2">
-                    <Slider
-                      className="w-28"
-                      min={MIN_CROP_ZOOM}
-                      max={MAX_CROP_ZOOM}
-                      step={0.05}
-                      value={options.cropZoom}
-                      onValueChange={(v) =>
-                        onChange({
-                          cropZoom: clampZoom(Array.isArray(v) ? v[0]! : v),
-                        })
-                      }
-                      aria-label="Crop zoom"
-                    />
-                    <span className="tnum text-muted-foreground w-9 text-right text-xs">
-                      {options.cropZoom.toFixed(2)}×
-                    </span>
-                  </div>
-                </Field>
-              </>
-            )}
           </>
         )}
         {format === "gif" && (
@@ -540,8 +558,4 @@ export function ExportButton({
       </div>
     </SplitButton>
   )
-}
-
-function fitLabel(fit: ClipOptions["fit"]): string {
-  return fit === "crop" ? "Crop" : fit === "bars" ? "Bars" : "Blur"
 }

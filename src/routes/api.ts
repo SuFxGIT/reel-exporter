@@ -37,7 +37,13 @@ import type { CaptureOrderStore } from "../media/capture-order.js"
 import { detectBars } from "../media/bars.js"
 import type { FfmpegCapabilities } from "../media/ffmpeg.js"
 import { renderCaptureThumb, renderFrame } from "../media/frames.js"
-import { FRAME_ASPECTS, MAX_CROP_ZOOM } from "../media/filters.js"
+import {
+  FRAME_ASPECTS,
+  MAX_CROP_ZOOM,
+  MAX_WIDTH_SCALE,
+  MIN_CROP_ZOOM,
+  MIN_WIDTH_SCALE,
+} from "../media/filters.js"
 import { HlsError, hlsSessions } from "../media/hls.js"
 import {
   jobs,
@@ -738,16 +744,18 @@ export function createApi(deps: ApiDeps): Router {
     maxWidth: z.number().int().min(160).max(7680).optional(),
     /** Video, fixed aspects only: short side of the output; omit for native resolution. */
     shortSide: z.number().int().min(160).max(4320).optional(),
-    /** Video, fixed aspects only: how the picture fills the frame. */
-    fit: z.enum(["blur", "crop", "bars"]).default("blur"),
+    /** Video, fixed aspects only: what fills the frame around the picture. */
+    background: z.enum(["black", "blur"]).default("blur"),
     /** Video only: detect and drop black bars baked into the picture. */
     trimBars: z.boolean().default(true),
-    /** Crop fit only: window position, 0..1 from the left and top. */
+    /** Fixed aspects only: window position, 0..1 from the left and top. */
     focus: z
       .object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1) })
       .optional(),
-    /** Crop fit only: how much tighter than the widest window; 1 is the whole picture. */
-    zoom: z.number().min(1).max(MAX_CROP_ZOOM).optional(),
+    /** Fixed aspects only: 1 covers the frame; above crops tighter, below shows the background. */
+    zoom: z.number().min(MIN_CROP_ZOOM).max(MAX_CROP_ZOOM).optional(),
+    /** Fixed aspects only: horizontal squeeze or stretch; 1 is the real width. */
+    widthScale: z.number().min(MIN_WIDTH_SCALE).max(MAX_WIDTH_SCALE).optional(),
     /** GIF only. */
     fps: z.number().int().min(5).max(30).default(15),
     width: z.number().int().min(160).max(1280).default(480),
@@ -809,7 +817,7 @@ export function createApi(deps: ApiDeps): Router {
               ...common,
               format: "mp4",
               aspect,
-              fit: body.fit,
+              background: body.background,
               trimBars: body.trimBars && caps.cropdetect,
               ...(aspect === "source"
                 ? body.maxWidth
@@ -819,6 +827,7 @@ export function createApi(deps: ApiDeps): Router {
                     ...(body.shortSide ? { shortSide: body.shortSide } : {}),
                     ...(body.focus ? { focus: body.focus } : {}),
                     ...(body.zoom ? { zoom: body.zoom } : {}),
+                    ...(body.widthScale ? { widthScale: body.widthScale } : {}),
                   }),
             }
       const job = jobs.createExport(info, probe, params)

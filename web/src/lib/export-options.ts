@@ -4,7 +4,8 @@ export type ScreenshotFormat = "png" | "jpeg" | "webp"
 export type SizePreset = "source" | "1080" | "720" | "custom"
 export type ClipQuality = "high" | "balanced" | "small"
 export type ExportFormat = "mp4" | "gif"
-export type FrameFit = "blur" | "crop" | "bars"
+/** What fills the frame where the picture does not cover it. */
+export type FrameBackground = "black" | "blur"
 export type FrameAspect = "9:16" | "4:5" | "1:1" | "4:3" | "16:9"
 /** The source picture's own aspect, or a fixed frame. */
 export type ExportAspect = "source" | FrameAspect
@@ -16,6 +17,9 @@ export const FRAME_RATIOS: Record<FrameAspect, number> = {
   "4:3": 4 / 3,
   "16:9": 16 / 9,
 }
+/** The UI caps zoom at 2.5 although the server accepts up to 4. */
+export const CROP_ZOOM_RANGE = { min: 0.25, max: 2.5 }
+export const CROP_WIDTH_RANGE = { min: 0.5, max: 1.5 }
 export type GifWidth = 320 | 480 | 640
 export type GifFps = 10 | 15 | 20
 
@@ -39,12 +43,14 @@ export interface ClipOptions {
   audio: boolean
   /** Video: the source picture's aspect, or a fixed frame. */
   aspect: ExportAspect
-  /** Video, fixed aspects: how the picture fills the frame. */
-  fit: FrameFit
-  /** Crop fit: where the window sits, 0..1 from the left and top. */
+  /** Fixed aspects: where the window sits, 0..1 from the left and top. */
   cropFocus: { x: number; y: number }
-  /** Crop fit: how much tighter than the widest window; 1 is the whole picture. */
+  /** Fixed aspects: 1 covers the frame; above crops tighter, below shows the background. */
   cropZoom: number
+  /** Fixed aspects: horizontal squeeze or stretch; 1 is the real width. */
+  cropWidth: number
+  /** Fixed aspects: what fills the frame around the picture. */
+  background: FrameBackground
   gifWidth: GifWidth
   gifFps: GifFps
 }
@@ -61,17 +67,20 @@ export const defaultClipOptions: ClipOptions = {
   quality: "balanced",
   audio: true,
   aspect: "source",
-  fit: "blur",
   cropFocus: { x: 0.5, y: 0.5 },
   cropZoom: 1,
+  cropWidth: 1,
+  background: "blur",
   gifWidth: 480,
   gifFps: 15,
 }
 
 const SCREENSHOT_KEY = "reel-exporter:screenshot-options"
-const CLIP_KEY = "reel-exporter:clip-options-v2"
+const CLIP_KEY = "reel-exporter:clip-options-v3"
+/** Before the Blur, Crop and Bars fits became one placement with a background. */
+const V2_CLIP_KEY = "reel-exporter:clip-options-v2"
 /** Before the Shorts format was folded into Video. */
-const LEGACY_CLIP_KEY = "reel-exporter:clip-options"
+const V1_CLIP_KEY = "reel-exporter:clip-options"
 
 /** Width limit sent to the server for a size preset; undefined means source resolution. */
 export function maxWidthFor(
@@ -124,19 +133,29 @@ function load<T extends object>(key: string, fallback: T): T {
   }
 }
 
-/** Clip options, migrating settings saved when Shorts was its own format. */
-function loadClip(): ClipOptions {
+function readRaw(key: string): Record<string, unknown> | null {
   try {
-    if (localStorage.getItem(CLIP_KEY))
-      return load(CLIP_KEY, defaultClipOptions)
+    const raw = localStorage.getItem(key)
+    return raw ? (JSON.parse(raw) as Record<string, unknown>) : null
   } catch {
-    return defaultClipOptions
+    return null
   }
-  type Legacy = Omit<Partial<ClipOptions>, "format" | "aspect"> & {
+}
+
+/** Clip options, migrating settings saved by earlier versions of the popover. */
+function loadClip(): ClipOptions {
+  const current = readRaw(CLIP_KEY)
+  if (current)
+    return { ...defaultClipOptions, ...(current as Partial<ClipOptions>) }
+  const v2 = readRaw(V2_CLIP_KEY)
+  const v1 = v2 ? null : readRaw(V1_CLIP_KEY)
+  if (!v2 && !v1) return defaultClipOptions
+  const old = (v2 ?? v1) as Omit<Partial<ClipOptions>, "format" | "aspect"> & {
     format?: string
     aspect?: string
+    fit?: string
   }
-  const { format, aspect, ...rest } = load<Legacy>(LEGACY_CLIP_KEY, {})
+  const { format, aspect, fit, ...rest } = old
   const frame = (Object.keys(FRAME_RATIOS) as FrameAspect[]).find(
     (a) => a === aspect
   )
@@ -144,8 +163,14 @@ function loadClip(): ClipOptions {
     ...defaultClipOptions,
     ...rest,
     format: format === "gif" ? "gif" : "mp4",
-    // Only the Shorts format used the aspect; MP4 users kept the source picture.
-    aspect: format === "shorts" && frame ? frame : "source",
+    // v1 only used the aspect for the Shorts format; MP4 users kept the source picture.
+    aspect: v1
+      ? format === "shorts" && frame
+        ? frame
+        : "source"
+      : (frame ?? "source"),
+    // The Bars fit was black behind the picture; Blur and Crop looked like blur.
+    background: fit === "bars" ? "black" : "blur",
   }
   save(CLIP_KEY, next)
   return next

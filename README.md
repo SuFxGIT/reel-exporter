@@ -18,7 +18,7 @@ Reel Exporter points at a read-only media share, shows your movies and shows in 
 
 - **Plays everything.** MKV, MP4, AVI, TS and friends with H.264, HEVC, AV1, 10-bit and HDR video and AC3, DTS, TrueHD or AAC audio all stream as an on-the-fly HLS preview (H.264 and AAC, up to 1080p). Seeking anywhere in a 60 GB remux starts within a couple of seconds.
 - **Frame-accurate screenshots** as PNG, JPEG or WebP (with a quality slider for the lossy formats) at the source resolution or scaled to 1080p, 720p or any width. HDR10, HLG and Dolby Vision (profiles 7 and 8) are tone-mapped to SDR so grabs look right.
-- **Clip trimming.** Set in and out points on the timeline, then export the range cut precisely from the original: a **Video** (MP4, H.264 and AAC) at source resolution or 1080p/720p in three quality levels, kept at the source aspect or fitted into a 9:16, 4:5, 1:1, 4:3 or 16:9 frame with a blurred, cropped or letterboxed fit, or a **GIF** up to 30 seconds. Black bars baked into the picture are always trimmed. All with progress and cancel.
+- **Clip trimming.** Set in and out points on the timeline, then export the range cut precisely from the original: a **Video** (MP4, H.264 and AAC) at source resolution or 1080p/720p in three quality levels, kept at the source aspect or placed in a 9:16, 4:5, 1:1, 4:3 or 16:9 frame with zoom, width and a black or blurred background, or a **GIF** up to 30 seconds. Black bars baked into the picture are always trimmed. All with progress and cancel.
 - **A timeline built for precision.** Waveform, ruler, minimap, drag-to-select, draggable in and out handles, zoom at the pointer with Ctrl and the mouse wheel, frame stepping, and hover thumbnails.
 - **Your folders, your libraries.** Mount one or more media shares read-only, browse them in the app and tick exactly which folders become libraries (a whole `movies 4k` share or a single sub-folder). Unticked folders are never scanned. Search, lazy-loaded seasons and episodes, and periodic rescans included.
 
@@ -111,12 +111,15 @@ The small arrow next to **Screenshot** and **Export** opens the options for that
 | Aspect (Video) | Source (the picture's own aspect) or a 9:16, 4:5, 1:1, 4:3 or 16:9 frame |
 | Size (Video) | Source, 1080p or 720p. For the Source aspect this is a width limit (1920 or 1280). For a fixed aspect it is the short side (1080×1920, 1920×1080, 1080×1080, ...), and Source cuts the crop at native resolution with no scaling |
 | Quality (Video) | High (CRF 18), Balanced (CRF 20) or Small (CRF 24, faster) |
-| Fit (fixed aspects) | Blur (picture centred over a blurred copy), Crop (fill the frame; drag the crop window over the preview to choose what stays and zoom up to 3× with the slider or the wheel) or Bars (black letterbox) |
+| Position (fixed aspects) | Drag the window over the preview to choose what stays. Fit zooms out until the whole picture is inside the frame; Reset restores the defaults |
+| Zoom (fixed aspects) | 0.25× to 2.5×, with the slider, the wheel or + and -. 1× just covers the frame; above it crops tighter, below it the picture shrinks and the background shows |
+| Width (fixed aspects) | 50% to 150%: squeeze or stretch the picture horizontally before it is placed, so a wide picture can fit a tall frame |
+| Background (fixed aspects) | Black, or a blurred and enlarged copy of the picture, behind whatever the picture does not cover |
 | Black bars (Video) | Always trimmed: bars baked into the picture are detected with ffmpeg's `cropdetect` on a few frames of the range and left out of the export (pass `"trimBars":false` to the API to keep them) |
 | Width and frame rate (GIF) | 320, 480 or 640 px wide at 10, 15 or 20 fps; GIFs are limited to 30 seconds |
 | Audio (Video) | The track selected in the header, or none |
 
-A 2.39:1 film at "1080p" comes out 1920×804 with its bars trimmed. GIFs use a palette built from the clip itself. The API accepts the same fields: `POST /api/items/:id/screenshot {"t":600,"format":"webp","quality":80,"maxWidth":1920}`, `POST /api/items/:id/clip {"start":60,"end":70,"quality":"small","maxWidth":1280,"audio":-1}`, `{"start":60,"end":70,"aspect":"4:5","shortSide":1080,"fit":"crop","focus":{"x":0.3,"y":0.5},"zoom":1.5}` (omit `shortSide` to crop at native resolution) and `{"start":60,"end":65,"format":"gif","fps":15,"width":480}`.
+A 2.39:1 film at "1080p" comes out 1920×804 with its bars trimmed. GIFs use a palette built from the clip itself. The API accepts the same fields: `POST /api/items/:id/screenshot {"t":600,"format":"webp","quality":80,"maxWidth":1920}`, `POST /api/items/:id/clip {"start":60,"end":70,"quality":"small","maxWidth":1280,"audio":-1}`, `{"start":60,"end":70,"aspect":"4:5","shortSide":1080,"focus":{"x":0.3,"y":0.5},"zoom":0.8,"widthScale":0.9,"background":"blur"}` (omit `shortSide` to crop at native resolution) and `{"start":60,"end":65,"format":"gif","fps":15,"width":480}`.
 
 ## Keyboard shortcuts
 

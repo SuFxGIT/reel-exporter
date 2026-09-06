@@ -29,11 +29,11 @@ import {
   frameFilters,
   type Crop,
   type FrameAspect,
-  type FrameFit,
+  type FrameBackground,
 } from "./filters.js"
 import type { ProbeResult } from "./probe.js"
 
-export type { FrameAspect, FrameFit } from "./filters.js"
+export type { FrameAspect, FrameBackground } from "./filters.js"
 
 /** Output aspect for a video export: the source picture, or a fixed frame. */
 export type ExportAspect = "source" | FrameAspect
@@ -64,14 +64,16 @@ export type ExportParams =
       maxWidth?: number
       /** Fixed aspects only: short side of the output; omit to crop at native resolution. */
       shortSide?: number
-      /** Fixed aspects only: how the picture fills the frame. */
-      fit: FrameFit
+      /** Fixed aspects only: what fills the frame around the picture. */
+      background: FrameBackground
       /** Detect and drop black bars baked into the picture. */
       trimBars: boolean
-      /** Crop fit only: window position, 0..1 from the left/top. */
+      /** Fixed aspects only: window position, 0..1 from the left/top. */
       focus?: { x: number; y: number }
-      /** Crop fit only: how much tighter than the widest window; 1 is the whole picture. */
+      /** Fixed aspects only: 1 covers the frame; above crops tighter, below shows the background. */
       zoom?: number
+      /** Fixed aspects only: horizontal squeeze or stretch; 1 is the real width. */
+      widthScale?: number
     })
   | (ExportBase & { format: "gif"; fps: number; width: number })
 
@@ -260,12 +262,14 @@ export function exportArgs(
                 params.maxWidth,
                 extra.bars
               )
-            : frameFilters(probe, params.fit, {
+            : frameFilters(probe, {
                 aspect: params.aspect,
+                background: params.background,
                 ...(params.shortSide ? { shortSide: params.shortSide } : {}),
                 ...(extra.bars ? { bars: extra.bars } : {}),
                 ...(params.focus ? { focus: params.focus } : {}),
                 ...(params.zoom ? { zoom: params.zoom } : {}),
+                ...(params.widthScale ? { widthScale: params.widthScale } : {}),
               }),
           ...x264Args(probe, params.quality)
         )
@@ -397,7 +401,7 @@ class JobManager {
       target = await allocateNumbered(info, ext)
       internal.target = target
       tmp = `${target.absPath}.tmp.${ext}`
-      // Video: find baked-in black bars first so every fit works on the picture.
+      // Video: find baked-in black bars first so the placement works on the picture.
       let bars: Crop | null = null
       if (params.format === "mp4" && params.trimBars && probe.hasVideo) {
         bars = await detectBars(
