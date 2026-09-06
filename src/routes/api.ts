@@ -37,13 +37,13 @@ import type { CaptureOrderStore } from "../media/capture-order.js"
 import { detectBars } from "../media/bars.js"
 import type { FfmpegCapabilities } from "../media/ffmpeg.js"
 import { renderCaptureThumb, renderFrame } from "../media/frames.js"
-import { MAX_SHORTS_ZOOM, SHORTS_ASPECTS } from "../media/filters.js"
+import { FRAME_ASPECTS, MAX_CROP_ZOOM } from "../media/filters.js"
 import { HlsError, hlsSessions } from "../media/hls.js"
 import {
   jobs,
   GIF_MAX_SECONDS,
+  type ExportAspect,
   type ExportParams,
-  type ShortsAspect,
 } from "../media/jobs.js"
 import { getPeaks } from "../media/peaks.js"
 import { probeFile, type ProbeResult } from "../media/probe.js"
@@ -693,7 +693,7 @@ export function createApi(deps: ApiDeps): Router {
     })
   )
 
-  // Black bars baked into the picture, for the Shorts crop preview.
+  // Black bars baked into the picture, for the crop preview.
   router.get(
     "/items/:id/bars",
     wrap(async (req, res) => {
@@ -728,20 +728,26 @@ export function createApi(deps: ApiDeps): Router {
     end: z.number().min(0),
     audio: z.number().int().min(-1).optional(),
     quality: z.enum(["high", "balanced", "small"]).default("balanced"),
-    maxWidth: z.number().int().min(160).max(7680).optional(),
+    /** "shorts" is accepted for older callers and means an mp4 in a 9:16 frame. */
     format: z.enum(["mp4", "shorts", "gif"]).default("mp4"),
-    /** Shorts only: how a widescreen picture fills the 9:16 frame. */
+    /** Video only: the source picture's aspect, or a fixed frame. */
+    aspect: z
+      .enum(["source", ...FRAME_ASPECTS] as [string, ...string[]])
+      .optional(),
+    /** Video, source aspect only: width limit. */
+    maxWidth: z.number().int().min(160).max(7680).optional(),
+    /** Video, fixed aspects only: short side of the output; omit for native resolution. */
+    shortSide: z.number().int().min(160).max(4320).optional(),
+    /** Video, fixed aspects only: how the picture fills the frame. */
     fit: z.enum(["blur", "crop", "bars"]).default("blur"),
-    /** Shorts only: output frame. */
-    aspect: z.enum(SHORTS_ASPECTS as [string, ...string[]]).default("9:16"),
-    /** Shorts only: detect and drop black bars baked into the picture. */
+    /** Video only: detect and drop black bars baked into the picture. */
     trimBars: z.boolean().default(true),
-    /** Shorts crop only: window position, 0..1 from the left and top. */
+    /** Crop fit only: window position, 0..1 from the left and top. */
     focus: z
       .object({ x: z.number().min(0).max(1), y: z.number().min(0).max(1) })
       .optional(),
-    /** Shorts crop only: how much tighter than the widest 9:16 window; 1 is the whole picture. */
-    zoom: z.number().min(1).max(MAX_SHORTS_ZOOM).optional(),
+    /** Crop fit only: how much tighter than the widest window; 1 is the whole picture. */
+    zoom: z.number().min(1).max(MAX_CROP_ZOOM).optional(),
     /** GIF only. */
     fps: z.number().int().min(5).max(30).default(15),
     width: z.number().int().min(160).max(1280).default(480),
@@ -751,6 +757,9 @@ export function createApi(deps: ApiDeps): Router {
     wrap(async (req, res) => {
       const id = req.params.id as string
       const body = parseBody(clipSchema, req.body)
+      const format = body.format === "gif" ? "gif" : "mp4"
+      const aspect = (body.aspect ??
+        (body.format === "shorts" ? "9:16" : "source")) as ExportAspect
       const { info, probe } = await loadPlayable(id)
       const start = Math.max(0, body.start)
       const end = Math.min(body.end, probe.duration || body.end)
@@ -760,7 +769,7 @@ export function createApi(deps: ApiDeps): Router {
           "Set an out point at least 0.1 seconds after the in point.",
           "bad_request"
         )
-      if (body.format === "gif" && end - start > GIF_MAX_SECONDS)
+      if (format === "gif" && end - start > GIF_MAX_SECONDS)
         throw new ApiError(
           400,
           `GIFs are limited to ${GIF_MAX_SECONDS} seconds. Pick a shorter range.`,
@@ -773,20 +782,19 @@ export function createApi(deps: ApiDeps): Router {
           "bad_request"
         )
       }
-      if (body.format !== "mp4" && !probe.hasVideo)
+      if ((format === "gif" || aspect !== "source") && !probe.hasVideo)
         throw new ApiError(
           422,
           "This file has no video stream to export.",
           "no_video"
         )
-      if (body.format === "gif" && !caps.gif)
+      if (format === "gif" && !caps.gif)
         throw new ApiError(
           503,
-          "This ffmpeg build cannot write GIF. Export an MP4 instead.",
+          "This ffmpeg build cannot write GIF. Export a video instead.",
           "unsupported"
         )
-      const audio =
-        body.format === "gif" ? -1 : (body.audio ?? probe.defaultAudio)
+      const audio = format === "gif" ? -1 : (body.audio ?? probe.defaultAudio)
       if (audio >= probe.audio.length)
         throw new ApiError(
           400,
@@ -795,23 +803,24 @@ export function createApi(deps: ApiDeps): Router {
         )
       const common = { start, end, audio, quality: body.quality }
       const params: ExportParams =
-        body.format === "gif"
+        format === "gif"
           ? { ...common, format: "gif", fps: body.fps, width: body.width }
-          : body.format === "shorts"
-            ? {
-                ...common,
-                format: "shorts",
-                fit: body.fit,
-                aspect: body.aspect as ShortsAspect,
-                trimBars: body.trimBars && caps.cropdetect,
-                ...(body.focus ? { focus: body.focus } : {}),
-                ...(body.zoom ? { zoom: body.zoom } : {}),
-              }
-            : {
-                ...common,
-                format: "mp4",
-                ...(body.maxWidth ? { maxWidth: body.maxWidth } : {}),
-              }
+          : {
+              ...common,
+              format: "mp4",
+              aspect,
+              fit: body.fit,
+              trimBars: body.trimBars && caps.cropdetect,
+              ...(aspect === "source"
+                ? body.maxWidth
+                  ? { maxWidth: body.maxWidth }
+                  : {}
+                : {
+                    ...(body.shortSide ? { shortSide: body.shortSide } : {}),
+                    ...(body.focus ? { focus: body.focus } : {}),
+                    ...(body.zoom ? { zoom: body.zoom } : {}),
+                  }),
+            }
       const job = jobs.createExport(info, probe, params)
       res.status(202).json({ jobId: job.id, job })
     })

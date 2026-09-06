@@ -93,7 +93,7 @@ export function useBrowse(sourceId: string | null, relPath: string) {
   })
 }
 
-/** Black bars baked into the picture for a range; drives the Shorts crop preview. */
+/** Black bars baked into the picture for a range; drives the crop preview. */
 export function useBars(
   id: string,
   start: number,

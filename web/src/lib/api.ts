@@ -164,20 +164,21 @@ export interface Capture {
 
 export interface Job {
   id: string
-  type: "clip" | "shorts" | "gif"
+  type: "clip" | "gif"
   itemId: string
   status: "queued" | "running" | "done" | "failed" | "cancelled"
   progress: number
   createdAt: string
   params: {
-    format: "mp4" | "shorts" | "gif"
+    format: "mp4" | "gif"
     start: number
     end: number
     audio: number
     quality: "high" | "balanced" | "small"
     maxWidth?: number
+    aspect?: "source" | "9:16" | "4:5" | "1:1" | "4:3" | "16:9"
+    shortSide?: number
     fit?: "blur" | "crop" | "bars"
-    aspect?: "9:16" | "4:5" | "1:1" | "4:3" | "16:9"
     fps?: number
     width?: number
   }
@@ -290,11 +291,12 @@ export const api = {
     end: number,
     audio: number,
     opts: {
-      format: "mp4" | "shorts" | "gif"
+      format: "mp4" | "gif"
       quality?: "high" | "balanced" | "small"
+      aspect?: "source" | "9:16" | "4:5" | "1:1" | "4:3" | "16:9"
       maxWidth?: number
+      shortSide?: number
       fit?: "blur" | "crop" | "bars"
-      aspect?: "9:16" | "4:5" | "1:1" | "4:3" | "16:9"
       focus?: { x: number; y: number }
       zoom?: number
       fps?: number
@@ -366,7 +368,6 @@ export const frameUrl = (id: string, t: number, width = 320): string =>
 
 /** Human label per export type, for toasts and the captures strip. */
 export const exportLabel: Record<Job["type"], string> = {
-  clip: "Clip",
-  shorts: "Shorts",
+  clip: "Video",
   gif: "GIF",
 }

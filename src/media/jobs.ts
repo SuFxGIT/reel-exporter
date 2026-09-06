@@ -26,20 +26,23 @@ import {
   fullResFilters,
   gifFilters,
   inputArgs,
-  shortsFilters,
+  frameFilters,
   type Crop,
-  type ShortsAspect,
-  type ShortsFit,
+  type FrameAspect,
+  type FrameFit,
 } from "./filters.js"
 import type { ProbeResult } from "./probe.js"
 
-export type { ShortsAspect, ShortsFit } from "./filters.js"
+export type { FrameAspect, FrameFit } from "./filters.js"
+
+/** Output aspect for a video export: the source picture, or a fixed frame. */
+export type ExportAspect = "source" | FrameAspect
 
 export type JobStatus = "queued" | "running" | "done" | "failed" | "cancelled"
 
 export type ClipQuality = "high" | "balanced" | "small"
 
-export type ExportFormat = "mp4" | "shorts" | "gif"
+export type ExportFormat = "mp4" | "gif"
 
 /** GIFs grow fast; keep them short. */
 export const GIF_MAX_SECONDS = 30
@@ -55,25 +58,25 @@ interface ExportBase {
 export type ExportParams =
   | (ExportBase & {
       format: "mp4"
-      /** Downscale so the width is at most this many pixels; omit for source resolution. */
+      /** "source" keeps the picture's own aspect; anything else is a fixed frame. */
+      aspect: ExportAspect
+      /** Source aspect only: downscale so the width is at most this many pixels. */
       maxWidth?: number
-    })
-  | (ExportBase & {
-      format: "shorts"
-      fit: ShortsFit
-      /** Output frame; 9:16 when omitted. */
-      aspect?: ShortsAspect
+      /** Fixed aspects only: short side of the output; omit to crop at native resolution. */
+      shortSide?: number
+      /** Fixed aspects only: how the picture fills the frame. */
+      fit: FrameFit
       /** Detect and drop black bars baked into the picture. */
       trimBars: boolean
       /** Crop fit only: window position, 0..1 from the left/top. */
       focus?: { x: number; y: number }
-      /** Crop fit only: how much tighter than the widest 9:16 window; 1 is the whole picture. */
+      /** Crop fit only: how much tighter than the widest window; 1 is the whole picture. */
       zoom?: number
     })
   | (ExportBase & { format: "gif"; fps: number; width: number })
 
 /** Kept as "clip" for MP4 so existing clients keep working. */
-export type JobType = "clip" | "shorts" | "gif"
+export type JobType = "clip" | "gif"
 
 export const jobTypeFor = (format: ExportFormat): JobType =>
   format === "mp4" ? "clip" : format
@@ -240,26 +243,6 @@ export function exportArgs(
       }
       return args
     }
-    case "shorts": {
-      args.push("-map", "0:V:0")
-      if (hasAudio) args.push("-map", `0:a:${params.audio}`)
-      args.push("-sn", "-dn", "-map_metadata", "-1", "-map_chapters", "-1")
-      args.push(
-        "-filter_threads",
-        "4",
-        "-vf",
-        shortsFilters(probe, params.fit, {
-          ...(params.aspect ? { aspect: params.aspect } : {}),
-          ...(extra.bars ? { bars: extra.bars } : {}),
-          ...(params.focus ? { focus: params.focus } : {}),
-          ...(params.zoom ? { zoom: params.zoom } : {}),
-        }),
-        ...x264Args(probe, params.quality)
-      )
-      if (hasAudio) args.push(...AAC_ARGS)
-      args.push(...durationArgs(params), ...MP4_TAIL, "-f", "mp4", tmp)
-      return args
-    }
     default: {
       if (probe.hasVideo) args.push("-map", "0:V:0")
       if (hasAudio) args.push("-map", `0:a:${params.audio}`)
@@ -269,7 +252,21 @@ export function exportArgs(
           "-filter_threads",
           "4",
           "-vf",
-          fullResFilters(probe, "yuv420p", "field", params.maxWidth),
+          params.aspect === "source"
+            ? fullResFilters(
+                probe,
+                "yuv420p",
+                "field",
+                params.maxWidth,
+                extra.bars
+              )
+            : frameFilters(probe, params.fit, {
+                aspect: params.aspect,
+                ...(params.shortSide ? { shortSide: params.shortSide } : {}),
+                ...(extra.bars ? { bars: extra.bars } : {}),
+                ...(params.focus ? { focus: params.focus } : {}),
+                ...(params.zoom ? { zoom: params.zoom } : {}),
+              }),
           ...x264Args(probe, params.quality)
         )
       if (hasAudio) args.push(...AAC_ARGS)
@@ -400,9 +397,9 @@ class JobManager {
       target = await allocateNumbered(info, ext)
       internal.target = target
       tmp = `${target.absPath}.tmp.${ext}`
-      // Shorts: find baked-in black bars first so every fit works on the picture.
+      // Video: find baked-in black bars first so every fit works on the picture.
       let bars: Crop | null = null
-      if (params.format === "shorts" && params.trimBars) {
+      if (params.format === "mp4" && params.trimBars && probe.hasVideo) {
         bars = await detectBars(
           info.absPath,
           probe,

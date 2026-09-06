@@ -42,14 +42,16 @@ There is no ffmpeg on the host; anything that touches media runs in a container.
   `use_editlist=0`), restart-on-seek, SIGSTOP throttling, idle cleanup. Do not change the
   ffmpeg flags without re-running the timestamp checks in the README's development notes.
 - `src/media/filters.ts` builds the filter chains (deinterlace, scale, zscale+tonemap for
-  HDR, `shortsFilters` for the blur/crop/bars fits into a 9:16, 4:5, 1:1, 4:3 or 16:9 frame, `gifFilters` for fps and
-  width). `probe.ts` classifies HDR (pq, hlg, dovi-p5, unknown-hdr) from ffprobe JSON.
+  HDR, `frameFilters` for the blur/crop/bars fits into a 9:16, 4:5, 1:1, 4:3 or 16:9 frame
+  (`frameFor` sizes the frame from a short side or natively from the picture), `gifFilters`
+  for fps and width). `probe.ts` classifies HDR (pq, hlg, dovi-p5, unknown-hdr) from ffprobe JSON.
 - `src/media/capture.ts` (screenshots: PNG/JPEG/WebP with `encoders.ts` mapping quality to
   encoder args, optional max width; `allocateNumbered` hands out `1.png`, `2.mp4`, ... per
   title folder for every capture kind; `renameCapture` for explicit renames; files are never
   renamed automatically), `capture-order.ts` (tile order in `CONFIG_PATH/captures.json`),
-  `jobs.ts` (export queue: MP4 with
-  quality presets, vertical Shorts MP4, two-pass GIF with a per-clip palette; `exportArgs`
+  `jobs.ts` (export queue: one Video (MP4) export with
+  quality presets, source or fixed aspect and always-on black-bar trimming, two-pass GIF
+  with a per-clip palette; `exportArgs`
   is pure and unit-tested), `peaks.ts` (waveform), `frames.ts` (hover and capture
   thumbnails). All child processes go through `ffmpeg.ts`'s `ProcessRegistry`.
 - `web/src/lib/export-options.ts` holds the per-browser export choices; the popovers live in

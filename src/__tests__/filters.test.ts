@@ -4,8 +4,9 @@ import {
   fullResFilters,
   gifFilters,
   previewFilters,
-  shortsFilters,
-  shortsPrescaleWidth,
+  frameFilters,
+  frameFor,
+  framePrescaleWidth,
   thumbnailFilters,
 } from "../media/filters.js"
 import type { ProbeResult } from "../media/probe.js"
@@ -79,40 +80,168 @@ const hdr = probe(
   { tonemap: true, kind: "pq" }
 )
 
-describe("shortsPrescaleWidth", () => {
-  it("downscales to the box the fit needs, never upscales", () => {
-    // 3413 rounded up to an even width for 4:2:0 output.
-    expect(shortsPrescaleWidth(sdr(3840, 2160), "blur")).toBe(3414)
-    expect(shortsPrescaleWidth(sdr(3840, 2160), "crop")).toBe(3414)
-    expect(shortsPrescaleWidth(sdr(3840, 2160), "bars")).toBe(1080)
-    expect(shortsPrescaleWidth(sdr(1920, 1080), "bars")).toBe(1080)
-    expect(shortsPrescaleWidth(sdr(1920, 1080), "blur")).toBeUndefined()
-    expect(shortsPrescaleWidth(sdr(1080, 1920), "blur")).toBeUndefined()
-    expect(shortsPrescaleWidth(sdr(1080, 1920), "bars")).toBeUndefined()
+const F = (
+  aspect: "9:16" | "4:5" | "1:1" | "4:3" | "16:9",
+  fit: "blur" | "crop" | "bars",
+  short = 1080
+) => frameFor(aspect, fit, { width: 3840, height: 2160 }, short)
+
+describe("frameFor", () => {
+  it("sizes fixed frames from the short side", () => {
+    expect(F("9:16", "crop")).toEqual({
+      width: 1080,
+      height: 1920,
+      native: false,
+    })
+    expect(F("4:5", "crop")).toEqual({
+      width: 1080,
+      height: 1350,
+      native: false,
+    })
+    expect(F("1:1", "crop")).toEqual({
+      width: 1080,
+      height: 1080,
+      native: false,
+    })
+    expect(F("4:3", "crop")).toEqual({
+      width: 1440,
+      height: 1080,
+      native: false,
+    })
+    expect(F("16:9", "crop")).toEqual({
+      width: 1920,
+      height: 1080,
+      native: false,
+    })
+    expect(F("9:16", "blur", 720)).toEqual({
+      width: 720,
+      height: 1280,
+      native: false,
+    })
+    expect(F("4:3", "bars", 720)).toEqual({
+      width: 960,
+      height: 720,
+      native: false,
+    })
+  })
+
+  it("sizes native frames from the picture", () => {
+    const pic = { width: 3840, height: 1608 }
+    // Crop: the largest 9:16 box inside a 3840x1608 picture is 904x1608 (rounded down to even).
+    expect(frameFor("9:16", "crop", pic)).toEqual({
+      width: 904,
+      height: 1608,
+      native: true,
+    })
+    expect(frameFor("9:16", "crop", pic, undefined, 2)).toEqual({
+      width: 452,
+      height: 804,
+      native: true,
+    })
+    expect(frameFor("16:9", "crop", pic)).toEqual({
+      width: 2858,
+      height: 1608,
+      native: true,
+    })
+    // Blur and bars: the smallest 9:16 box around the picture.
+    expect(frameFor("9:16", "blur", pic)).toEqual({
+      width: 3840,
+      height: 6828,
+      native: true,
+    })
+    expect(frameFor("1:1", "bars", pic)).toEqual({
+      width: 3840,
+      height: 3840,
+      native: true,
+    })
+    expect(frameFor("16:9", "bars", { width: 1080, height: 1920 })).toEqual({
+      width: 3414,
+      height: 1920,
+      native: true,
+    })
   })
 })
 
-describe("shortsFilters", () => {
+describe("framePrescaleWidth", () => {
+  it("downscales to the box the fit needs, never upscales", () => {
+    // 3413 rounded up to an even width for 4:2:0 output.
+    expect(framePrescaleWidth(sdr(3840, 2160), "blur", F("9:16", "blur"))).toBe(
+      3414
+    )
+    expect(framePrescaleWidth(sdr(3840, 2160), "crop", F("9:16", "crop"))).toBe(
+      3414
+    )
+    expect(framePrescaleWidth(sdr(3840, 2160), "bars", F("9:16", "bars"))).toBe(
+      1080
+    )
+    expect(framePrescaleWidth(sdr(1920, 1080), "bars", F("9:16", "bars"))).toBe(
+      1080
+    )
+    expect(
+      framePrescaleWidth(sdr(1920, 1080), "blur", F("9:16", "blur"))
+    ).toBeUndefined()
+    expect(
+      framePrescaleWidth(sdr(1080, 1920), "blur", F("9:16", "blur"))
+    ).toBeUndefined()
+    expect(
+      framePrescaleWidth(sdr(1080, 1920), "bars", F("9:16", "bars"))
+    ).toBeUndefined()
+    expect(
+      framePrescaleWidth(
+        sdr(3840, 2160),
+        "crop",
+        frameFor("9:16", "crop", { width: 3840, height: 2160 })
+      )
+    ).toBeUndefined()
+  })
+})
+
+const at1080 = { shortSide: 1080 }
+
+describe("frameFilters", () => {
   it("fixes colour first, tone-maps HDR before compositing, then fills 1080x1920", () => {
-    const blur = shortsFilters(
+    const blur = frameFilters(
       probe({ displayWidth: 3840, height: 2160 }),
-      "blur"
+      "blur",
+      at1080
     )
     expect(blur.startsWith("setparams=color_trc=bt709,")).toBe(true)
     expect(blur).toContain(",format=yuv420p,split[bg][fg];")
     expect(
       blur.endsWith("overlay=x=(W-w)/2:y=(H-h)/2:format=yuv420,format=yuv420p")
     ).toBe(true)
-    const crop = shortsFilters(hdr, "crop")
+    const crop = frameFilters(hdr, "crop", at1080)
     expect(crop.indexOf("tonemap=")).toBeLessThan(crop.indexOf("crop=w=1080"))
     expect(
       crop.endsWith("crop=w=1080:h=1920:x=(iw-1080)*0.500:y=(ih-1920)*0.500")
     ).toBe(true)
-    const bars = shortsFilters(sdr(1920, 1080), "bars")
+    const bars = frameFilters(sdr(1920, 1080), "bars", at1080)
     expect(
       bars.endsWith("pad=w=1080:h=1920:x=(ow-iw)/2:y=(oh-ih)/2:color=black")
     ).toBe(true)
     expect(bars).toContain("scale=w='min(1080,iw*sar)':h=-2:flags=lanczos")
+  })
+
+  it("cuts a native crop straight out of the picture without scaling", () => {
+    const s = frameFilters(sdr(3840, 2160), "crop", {
+      aspect: "9:16",
+      focus: { x: 0.25, y: 0.5 },
+      zoom: 2,
+    })
+    // Largest 9:16 box in 3840x2160 is 1215x2160; at zoom 2 the window is 606x1080.
+    expect(s).toBe(
+      "format=yuv420p,crop=w=606:h=1080:x=(iw-606)*0.250:y=(ih-1080)*0.500"
+    )
+    const boxed = frameFilters(sdr(3840, 2160), "crop", {
+      aspect: "1:1",
+      bars: { w: 3840, h: 1608, x: 0, y: 276 },
+    })
+    expect(boxed).toBe(
+      "crop=w=3840:h=1608:x=0:y=276,format=yuv420p,crop=w=1608:h=1608:x=(iw-1608)*0.500:y=(ih-1608)*0.500"
+    )
+    const native = frameFilters(sdr(1920, 1080), "bars", { aspect: "9:16" })
+    expect(native).toContain("pad=w=1920:h=3414:")
+    expect(native).not.toContain("scale=w='min(")
   })
 })
 
@@ -128,38 +257,46 @@ describe("gifFilters", () => {
   })
 })
 
-describe("shortsFilters with bars and a focus", () => {
+describe("frameFilters with bars and a focus", () => {
   const boxed = sdr(3840, 2160)
   const bars = { w: 3840, h: 1608, x: 0, y: 276 }
 
   it("crops the bars before scaling and sizes the downscale to the picture", () => {
-    const s = shortsFilters(boxed, "bars", { bars })
+    const s = frameFilters(boxed, "bars", { shortSide: 1080, bars })
     const cropAt = s.indexOf("crop=w=3840:h=1608:x=0:y=276")
     expect(cropAt).toBeGreaterThan(-1)
     expect(cropAt).toBeLessThan(s.indexOf("scale="))
     // Picture is 3840x1608: at 1920 tall it would be 4585 wide, so bars fit 1080 wide.
     expect(s).toContain("scale=w='min(1080,iw*sar)':h=-2:flags=lanczos")
     expect(
-      shortsPrescaleWidth(boxed, "blur", { width: 3840, height: 1608 })
+      framePrescaleWidth(boxed, "blur", F("9:16", "blur"), {
+        width: 3840,
+        height: 1608,
+      })
     ).toBe(undefined)
   })
 
   it("places the crop window where the focus says", () => {
-    const left = shortsFilters(boxed, "crop", { focus: { x: 0, y: 0.5 } })
+    const left = frameFilters(boxed, "crop", {
+      shortSide: 1080,
+      focus: { x: 0, y: 0.5 },
+    })
     expect(left.endsWith("x=(iw-1080)*0.000:y=(ih-1920)*0.500")).toBe(true)
-    const right = shortsFilters(boxed, "crop", {
+    const right = frameFilters(boxed, "crop", {
+      shortSide: 1080,
       bars,
       focus: { x: 1, y: 0.5 },
     })
     expect(right.endsWith("x=(iw-1080)*1.000:y=(ih-1920)*0.500")).toBe(true)
     expect(right).toContain("crop=w=3840:h=1608:x=0:y=276")
     expect(
-      shortsFilters(boxed, "blur", { focus: { x: 0, y: 0 } })
+      frameFilters(boxed, "blur", { shortSide: 1080, focus: { x: 0, y: 0 } })
     ).not.toContain("*0.000")
   })
 
   it("zooms by filling past the frame and keeps the 1080x1920 crop", () => {
-    const zoomed = shortsFilters(boxed, "crop", {
+    const zoomed = frameFilters(boxed, "crop", {
+      shortSide: 1080,
       bars,
       focus: { x: 0.25, y: 0.5 },
       zoom: 2,
@@ -170,38 +307,51 @@ describe("shortsFilters with bars and a focus", () => {
     // 3840x1608 at 1920 tall is 4585 wide; the picture is smaller so it is not prescaled.
     expect(zoomed).not.toContain("scale=w='min(")
     expect(
-      shortsPrescaleWidth(sdr(3840, 2160), "crop", undefined, 2)
+      framePrescaleWidth(
+        sdr(3840, 2160),
+        "crop",
+        F("9:16", "crop"),
+        undefined,
+        2
+      )
     ).toBeUndefined()
     // 4K at zoom 1 prescales to 3414; zoom 1.05 needs 3584.
-    expect(shortsPrescaleWidth(sdr(3840, 2160), "crop", undefined, 1.05)).toBe(
-      3584
-    )
+    expect(
+      framePrescaleWidth(
+        sdr(3840, 2160),
+        "crop",
+        F("9:16", "crop"),
+        undefined,
+        1.05
+      )
+    ).toBe(3584)
     // Out-of-range zoom is clamped, and 1 is byte-identical to no zoom.
-    expect(shortsFilters(boxed, "crop", { zoom: 1 })).toBe(
-      shortsFilters(boxed, "crop")
+    expect(frameFilters(boxed, "crop", { shortSide: 1080, zoom: 1 })).toBe(
+      frameFilters(boxed, "crop", at1080)
     )
-    expect(shortsFilters(boxed, "crop", { zoom: 0.5 })).toBe(
-      shortsFilters(boxed, "crop")
+    expect(frameFilters(boxed, "crop", { shortSide: 1080, zoom: 0.5 })).toBe(
+      frameFilters(boxed, "crop", at1080)
     )
-    expect(shortsFilters(boxed, "crop", { zoom: 99 })).toContain(
-      "scale=w=4320:h=7680:"
-    )
+    expect(
+      frameFilters(boxed, "crop", { shortSide: 1080, zoom: 99 })
+    ).toContain("scale=w=4320:h=7680:")
   })
 })
 
-describe("shortsFilters with another aspect", () => {
+describe("frameFilters with another aspect", () => {
   it("sizes every fit to the chosen frame", () => {
     const src = sdr(3840, 2160)
-    expect(shortsFilters(src, "bars", { aspect: "1:1" })).toContain(
-      "pad=w=1080:h=1080:"
-    )
-    expect(shortsFilters(src, "bars", { aspect: "1:1" })).toContain(
-      "scale=w='min(1080,iw*sar)'"
-    )
-    const blur = shortsFilters(src, "blur", { aspect: "4:5" })
+    expect(
+      frameFilters(src, "bars", { shortSide: 1080, aspect: "1:1" })
+    ).toContain("pad=w=1080:h=1080:")
+    expect(
+      frameFilters(src, "bars", { shortSide: 1080, aspect: "1:1" })
+    ).toContain("scale=w='min(1080,iw*sar)'")
+    const blur = frameFilters(src, "blur", { shortSide: 1080, aspect: "4:5" })
     expect(blur).toContain("scale=w=270:h=338:")
     expect(blur).toContain("scale=w=1080:h=1350:flags=bicubic[bgb]")
-    const crop = shortsFilters(src, "crop", {
+    const crop = frameFilters(src, "crop", {
+      shortSide: 1080,
       aspect: "16:9",
       focus: { x: 0.5, y: 0 },
       zoom: 2,
@@ -211,11 +361,11 @@ describe("shortsFilters with another aspect", () => {
     )
     // 4K into a 16:9 frame at zoom 2 needs 3840 wide, so no prescale.
     expect(crop).not.toContain("scale=w='min(")
-    expect(shortsFilters(src, "crop", { aspect: "16:9" })).toContain(
-      "scale=w='min(1920,iw*sar)'"
-    )
-    expect(shortsFilters(src, "crop")).toBe(
-      shortsFilters(src, "crop", { aspect: "9:16" })
+    expect(
+      frameFilters(src, "crop", { shortSide: 1080, aspect: "16:9" })
+    ).toContain("scale=w='min(1920,iw*sar)'")
+    expect(frameFilters(src, "crop", at1080)).toBe(
+      frameFilters(src, "crop", { shortSide: 1080, aspect: "9:16" })
     )
   })
 })

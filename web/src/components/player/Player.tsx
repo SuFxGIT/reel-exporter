@@ -10,6 +10,7 @@ import { api, hlsUrl, type ItemDetail, exportLabel } from "@/lib/api"
 import {
   GIF_MAX_SECONDS,
   maxWidthFor,
+  shortSideFor,
   useExportOptions,
 } from "@/lib/export-options"
 import { stepFrames } from "@/lib/frame-step"
@@ -199,20 +200,20 @@ export function Player({ item, onToggleSidebar, onClose }: Props) {
                 fps: clipOpts.gifFps,
                 width: clipOpts.gifWidth,
               }
-            : clipOpts.format === "shorts"
-              ? {
-                  format: "shorts" as const,
-                  fit: clipOpts.fit,
-                  aspect: clipOpts.aspect,
-                  ...(clipOpts.fit === "crop"
-                    ? { focus: clipOpts.cropFocus, zoom: clipOpts.cropZoom }
-                    : {}),
-                }
-              : {
-                  format: "mp4" as const,
-                  quality: clipOpts.quality,
-                  maxWidth: maxWidthFor(clipOpts.size),
-                }
+            : {
+                format: "mp4" as const,
+                quality: clipOpts.quality,
+                aspect: clipOpts.aspect,
+                ...(clipOpts.aspect === "source"
+                  ? { maxWidth: maxWidthFor(clipOpts.size) }
+                  : {
+                      shortSide: shortSideFor(clipOpts.size),
+                      fit: clipOpts.fit,
+                      ...(clipOpts.fit === "crop"
+                        ? { focus: clipOpts.cropFocus, zoom: clipOpts.cropZoom }
+                        : {}),
+                    }),
+              }
         const wantsAudio = clipOpts.format !== "gif" && clipOpts.audio
         api
           .clip(

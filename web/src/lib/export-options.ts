@@ -3,20 +3,18 @@ import { useCallback, useState } from "react"
 export type ScreenshotFormat = "png" | "jpeg" | "webp"
 export type SizePreset = "source" | "1080" | "720" | "custom"
 export type ClipQuality = "high" | "balanced" | "small"
-export type ExportFormat = "mp4" | "shorts" | "gif"
-export type ShortsFit = "blur" | "crop" | "bars"
-export type ShortsAspect = "9:16" | "4:5" | "1:1" | "4:3" | "16:9"
+export type ExportFormat = "mp4" | "gif"
+export type FrameFit = "blur" | "crop" | "bars"
+export type FrameAspect = "9:16" | "4:5" | "1:1" | "4:3" | "16:9"
+/** The source picture's own aspect, or a fixed frame. */
+export type ExportAspect = "source" | FrameAspect
 
-/** Output frames for the Shorts export: 1080 on the short side. */
-export const SHORTS_FRAMES: Record<
-  ShortsAspect,
-  { width: number; height: number }
-> = {
-  "9:16": { width: 1080, height: 1920 },
-  "4:5": { width: 1080, height: 1350 },
-  "1:1": { width: 1080, height: 1080 },
-  "4:3": { width: 1440, height: 1080 },
-  "16:9": { width: 1920, height: 1080 },
+export const FRAME_RATIOS: Record<FrameAspect, number> = {
+  "9:16": 9 / 16,
+  "4:5": 4 / 5,
+  "1:1": 1,
+  "4:3": 4 / 3,
+  "16:9": 16 / 9,
 }
 export type GifWidth = 320 | 480 | 640
 export type GifFps = 10 | 15 | 20
@@ -39,13 +37,13 @@ export interface ClipOptions {
   quality: ClipQuality
   /** Include the selected audio track. */
   audio: boolean
-  /** Shorts: the output frame. */
-  aspect: ShortsAspect
-  /** Shorts: how the picture fills the frame. */
-  fit: ShortsFit
-  /** Shorts crop: where the 9:16 window sits, 0..1 from the left and top. */
+  /** Video: the source picture's aspect, or a fixed frame. */
+  aspect: ExportAspect
+  /** Video, fixed aspects: how the picture fills the frame. */
+  fit: FrameFit
+  /** Crop fit: where the window sits, 0..1 from the left and top. */
   cropFocus: { x: number; y: number }
-  /** Shorts crop: how much tighter than the widest 9:16 window; 1 is the whole picture. */
+  /** Crop fit: how much tighter than the widest window; 1 is the whole picture. */
   cropZoom: number
   gifWidth: GifWidth
   gifFps: GifFps
@@ -62,7 +60,7 @@ export const defaultClipOptions: ClipOptions = {
   size: "source",
   quality: "balanced",
   audio: true,
-  aspect: "9:16",
+  aspect: "source",
   fit: "blur",
   cropFocus: { x: 0.5, y: 0.5 },
   cropZoom: 1,
@@ -71,7 +69,9 @@ export const defaultClipOptions: ClipOptions = {
 }
 
 const SCREENSHOT_KEY = "reel-exporter:screenshot-options"
-const CLIP_KEY = "reel-exporter:clip-options"
+const CLIP_KEY = "reel-exporter:clip-options-v2"
+/** Before the Shorts format was folded into Video. */
+const LEGACY_CLIP_KEY = "reel-exporter:clip-options"
 
 /** Width limit sent to the server for a size preset; undefined means source resolution. */
 export function maxWidthFor(
@@ -90,6 +90,11 @@ export function maxWidthFor(
     default:
       return undefined
   }
+}
+
+/** Short side sent to the server for a fixed-aspect export; undefined means native resolution. */
+export function shortSideFor(size: SizePreset): number | undefined {
+  return size === "1080" ? 1080 : size === "720" ? 720 : undefined
 }
 
 export function sizeLabel(size: SizePreset, customWidth?: number): string {
@@ -119,6 +124,33 @@ function load<T extends object>(key: string, fallback: T): T {
   }
 }
 
+/** Clip options, migrating settings saved when Shorts was its own format. */
+function loadClip(): ClipOptions {
+  try {
+    if (localStorage.getItem(CLIP_KEY))
+      return load(CLIP_KEY, defaultClipOptions)
+  } catch {
+    return defaultClipOptions
+  }
+  type Legacy = Omit<Partial<ClipOptions>, "format" | "aspect"> & {
+    format?: string
+    aspect?: string
+  }
+  const { format, aspect, ...rest } = load<Legacy>(LEGACY_CLIP_KEY, {})
+  const frame = (Object.keys(FRAME_RATIOS) as FrameAspect[]).find(
+    (a) => a === aspect
+  )
+  const next: ClipOptions = {
+    ...defaultClipOptions,
+    ...rest,
+    format: format === "gif" ? "gif" : "mp4",
+    // Only the Shorts format used the aspect; MP4 users kept the source picture.
+    aspect: format === "shorts" && frame ? frame : "source",
+  }
+  save(CLIP_KEY, next)
+  return next
+}
+
 function save(key: string, value: unknown): void {
   try {
     localStorage.setItem(key, JSON.stringify(value))
@@ -132,9 +164,7 @@ export function useExportOptions() {
   const [screenshot, setScreenshotState] = useState<ScreenshotOptions>(() =>
     load(SCREENSHOT_KEY, defaultScreenshotOptions)
   )
-  const [clip, setClipState] = useState<ClipOptions>(() =>
-    load(CLIP_KEY, defaultClipOptions)
-  )
+  const [clip, setClipState] = useState<ClipOptions>(loadClip)
   const setScreenshot = useCallback((patch: Partial<ScreenshotOptions>) => {
     setScreenshotState((cur) => {
       const next = { ...cur, ...patch }

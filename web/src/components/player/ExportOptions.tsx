@@ -15,8 +15,11 @@ import {
   type GifWidth,
   type ScreenshotOptions,
   type SizePreset,
-  SHORTS_FRAMES,
-  type ShortsAspect,
+  FRAME_RATIOS,
+  shortSideFor,
+  type ExportAspect,
+  type FrameAspect,
+  type FrameFit,
 } from "@/lib/export-options"
 import type { Selection } from "@/hooks/useSelection"
 import { Button } from "@/components/ui/button"
@@ -46,6 +49,42 @@ export function outputSize(
     return { width: v.displayWidth, height: v.height }
   const h = Math.round((v.height * maxWidth) / v.displayWidth)
   return { width: maxWidth, height: h - (h % 2) }
+}
+
+const even = (n: number) => Math.round(n / 2) * 2
+
+/**
+ * Output size of a framed export. Mirrors the server: a short side scales the
+ * frame, otherwise the frame is native (the crop window itself, or the smallest
+ * box of that aspect around the picture without its bars).
+ */
+export function frameSize(
+  item: ItemDetail,
+  aspect: FrameAspect,
+  fit: FrameFit,
+  shortSide: number | undefined,
+  zoom: number,
+  crop: BarsResponse["crop"]
+): { width: number; height: number } | null {
+  const v = item.video
+  if (!v) return null
+  const ratio = FRAME_RATIOS[aspect]
+  if (shortSide)
+    return ratio < 1
+      ? { width: shortSide, height: even(shortSide / ratio) }
+      : { width: even(shortSide * ratio), height: shortSide }
+  const sar = v.displayWidth / v.width
+  const pw = crop ? crop.w * sar : v.displayWidth
+  const ph = crop ? crop.h : v.height
+  const wide = pw / ph > ratio
+  if (fit === "crop") {
+    const w = (wide ? ph * ratio : pw) / zoom
+    const h = (wide ? ph : pw / ratio) / zoom
+    return { width: Math.floor(w / 2) * 2, height: Math.floor(h / 2) * 2 }
+  }
+  const w = wide ? pw : ph * ratio
+  const h = wide ? pw / ratio : ph
+  return { width: Math.ceil(w / 2) * 2, height: Math.ceil(h / 2) * 2 }
 }
 
 function Field({
@@ -166,7 +205,8 @@ function formatLabel(o: ScreenshotOptions): string {
   return o.quality >= 100 ? "WebP lossless" : `WebP ${o.quality}`
 }
 
-const SHORTS_ASPECTS: Array<[ShortsAspect, string]> = [
+const ASPECT_OPTIONS: Array<[ExportAspect, string]> = [
+  ["source", "Source"],
   ["9:16", "9:16"],
   ["4:5", "4:5"],
   ["1:1", "1:1"],
@@ -308,19 +348,24 @@ export function ExportButton({
   onExport: () => void
 }) {
   const { format } = options
+  const framed = format === "mp4" && options.aspect !== "source"
   const rangeStart = selection?.start ?? 0
   const rangeEnd = selection?.end ?? rangeStart + 5
-  const bars = useBars(
-    item.id,
-    rangeStart,
-    rangeEnd,
-    format === "shorts" && options.fit === "crop"
-  )
+  const bars = useBars(item.id, rangeStart, rangeEnd, framed)
+  const crop = (bars.data as BarsResponse | undefined)?.crop ?? null
+  const shortSide = shortSideFor(options.size)
   const size =
-    format === "shorts"
-      ? SHORTS_FRAMES[options.aspect]
-      : format === "gif"
-        ? outputSize(item, options.gifWidth)
+    format === "gif"
+      ? outputSize(item, options.gifWidth)
+      : framed
+        ? frameSize(
+            item,
+            options.aspect as FrameAspect,
+            options.fit,
+            shortSide,
+            options.fit === "crop" ? options.cropZoom : 1,
+            crop
+          )
         : outputSize(item, maxWidthFor(options.size))
   const length = selection ? selection.end - selection.start : 0
   const lengthLabel =
@@ -336,15 +381,15 @@ export function ExportButton({
       ? `GIFs are limited to ${GIF_MAX_SECONDS} seconds. Pick a shorter range.`
       : format === "gif"
         ? "Export the selection as a GIF (E)"
-        : format === "shorts"
-          ? "Export the selection as a vertical Shorts MP4 (E)"
-          : "Export the selection as an MP4 (E)"
+        : "Export the selection as an MP4 (E)"
+  const sizeText = size ? ` · ${size.width}×${size.height}` : ""
+  const tail = `${withAudio ? " · AAC stereo" : " · no audio"}${item.hdr.tonemap ? " · SDR" : ""}`
   const summary =
     format === "gif"
-      ? `GIF${size ? ` · ${size.width}×${size.height}` : ""} · ${options.gifFps} fps · ${GIF_MAX_SECONDS} s max`
-      : format === "shorts"
-        ? `MP4 H.264 · ${options.aspect} · ${size!.width}×${size!.height} · ${fitLabel(options.fit)}${options.fit === "crop" && options.cropZoom !== 1 ? ` ${options.cropZoom.toFixed(2)}×` : ""} · bars trimmed${withAudio ? " · AAC stereo" : " · no audio"}${item.hdr.tonemap ? " · SDR" : ""}`
-        : `MP4 H.264${size ? ` · ${size.width}×${size.height}` : ""} · CRF ${options.quality === "high" ? 18 : options.quality === "small" ? 24 : 20}${withAudio ? " · AAC stereo" : " · no audio"}${item.hdr.tonemap ? " · SDR" : ""}`
+      ? `GIF${sizeText} · ${options.gifFps} fps · ${GIF_MAX_SECONDS} s max`
+      : framed
+        ? `MP4 H.264 · ${options.aspect}${sizeText}${shortSide ? "" : " native"} · ${fitLabel(options.fit)}${options.fit === "crop" && options.cropZoom !== 1 ? ` ${options.cropZoom.toFixed(2)}×` : ""} · bars trimmed${tail}`
+        : `MP4 H.264${sizeText} · CRF ${options.quality === "high" ? 18 : options.quality === "small" ? 24 : 20} · bars trimmed${tail}`
   const buttonLabel = !selection
     ? "Set in and out first"
     : tooLong
@@ -367,8 +412,7 @@ export function ExportButton({
           <Choice
             value={format}
             options={[
-              ["mp4", "MP4"],
-              ["shorts", "Shorts"],
+              ["mp4", "Video"],
               ["gif", "GIF"],
             ]}
             onChange={(next) => onChange({ format: next })}
@@ -376,6 +420,13 @@ export function ExportButton({
         </Field>
         {format === "mp4" && (
           <>
+            <Field label="Aspect">
+              <Choice
+                value={options.aspect}
+                options={ASPECT_OPTIONS}
+                onChange={(aspect) => onChange({ aspect })}
+              />
+            </Field>
             <Field label="Size">
               <Choice
                 value={options.size}
@@ -398,15 +449,8 @@ export function ExportButton({
             </Field>
           </>
         )}
-        {format === "shorts" && (
+        {framed && (
           <>
-            <Field label="Aspect">
-              <Choice
-                value={options.aspect}
-                options={SHORTS_ASPECTS}
-                onChange={(aspect) => onChange({ aspect })}
-              />
-            </Field>
             <Field label="Fit">
               <Choice
                 value={options.fit}
@@ -423,7 +467,7 @@ export function ExportButton({
                 <CropPicker
                   item={item}
                   previewUrl={frameUrl(item.id, rangeStart, 640)}
-                  aspect={options.aspect}
+                  ratio={FRAME_RATIOS[options.aspect as FrameAspect]}
                   focus={options.cropFocus}
                   onChange={(cropFocus) => onChange({ cropFocus })}
                   zoom={options.cropZoom}

@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import type { BarsResponse, ItemDetail } from "@/lib/api"
-import { SHORTS_FRAMES, type ShortsAspect } from "@/lib/export-options"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 
@@ -58,7 +57,7 @@ export function layoutWindow(
 export function CropPicker({
   item,
   previewUrl,
-  aspect,
+  ratio,
   focus,
   onChange,
   zoom,
@@ -67,7 +66,8 @@ export function CropPicker({
 }: {
   item: ItemDetail
   previewUrl: string
-  aspect: ShortsAspect
+  /** Output aspect as width / height. */
+  ratio: number
   focus: Focus
   onChange: (focus: Focus) => void
   zoom: number
@@ -117,13 +117,7 @@ export function CropPicker({
         h: crop.h * scale,
       }
     : frame
-  const frameOut = SHORTS_FRAMES[aspect]
-  const { win, axis } = layoutWindow(
-    picture,
-    focus,
-    zoom,
-    frameOut.width / frameOut.height
-  )
+  const { win, axis } = layoutWindow(picture, focus, zoom, ratio)
 
   const place = useCallback(
     (clientX: number, clientY: number) => {
@@ -246,7 +240,7 @@ export function CropPicker({
       <div className="text-muted-foreground flex items-center justify-between text-[11px]">
         <span>
           {axis === null && zoom === 1
-            ? `The picture already fits ${aspect}. Zoom to crop tighter.`
+            ? "The picture already has this aspect. Zoom to crop tighter."
             : crop
               ? "Drag to move, scroll to zoom. Black bars are left out."
               : "Drag to move, scroll to zoom"}

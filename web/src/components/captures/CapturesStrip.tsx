@@ -134,9 +134,7 @@ export function CapturesStrip({ itemId, activeJob }: Props) {
               <Loader2 className="text-primary size-3 animate-spin" />
               {job.status === "queued"
                 ? "Queued"
-                : job.type === "clip"
-                  ? "Exporting"
-                  : `Exporting ${exportLabel[job.type]}`}
+                : `Exporting ${exportLabel[job.type].toLowerCase()}`}
               <span className="tnum text-muted-foreground">
                 {formatTime(job.params.start, false)}–
                 {formatTime(job.params.end, false)}

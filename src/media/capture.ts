@@ -81,7 +81,7 @@ const pendingIn = (dir: string): string[] =>
 
 /**
  * Reserves the next numbered name in the title's folder: OUTPUT/<folder>/<n>.<ext>.
- * One counter covers screenshots, clips, Shorts and GIFs; the number is one
+ * One counter covers screenshots, clips and GIFs; the number is one
  * above the highest already there, so nothing ever needs renaming.
  */
 export function allocateNumbered(

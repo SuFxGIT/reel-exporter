@@ -115,65 +115,110 @@ function prepFilters(
   return parts
 }
 
-/** Full-resolution output (screenshots, clips). */
+/** Full-resolution output (screenshots, clips). `preCrop` drops detected black bars first. */
 export function fullResFilters(
   probe: ProbeResult,
   pixelFormat: "yuv420p" | "rgb24" | "yuvj420p" | "bgra",
   deinterlaceMode: "frame" | "field",
-  maxWidth?: number
+  maxWidth?: number,
+  preCrop?: Crop
 ): string {
   return [
-    ...prepFilters(probe, deinterlaceMode, maxWidth),
+    ...prepFilters(probe, deinterlaceMode, maxWidth, preCrop),
     `format=${pixelFormat}`,
   ].join(",")
 }
 
 // ---------------------------------------------------------------------------
-// Shorts output: a fixed frame (9:16 by default) the picture is fitted into
+// Framed output: the picture fitted into a fixed aspect (9:16, 1:1, 16:9, ...)
 // ---------------------------------------------------------------------------
 
-export type ShortsFit = "blur" | "crop" | "bars"
-export type ShortsAspect = "9:16" | "4:5" | "1:1" | "4:3" | "16:9"
-export const SHORTS_ASPECTS: ShortsAspect[] = [
+export type FrameFit = "blur" | "crop" | "bars"
+export type FrameAspect = "9:16" | "4:5" | "1:1" | "4:3" | "16:9"
+export const FRAME_ASPECTS: FrameAspect[] = [
   "9:16",
   "4:5",
   "1:1",
   "4:3",
   "16:9",
 ]
-export const DEFAULT_SHORTS_ASPECT: ShortsAspect = "9:16"
+export const DEFAULT_FRAME_ASPECT: FrameAspect = "9:16"
 
-export interface ShortsFrame {
+const FRAME_RATIOS: Record<FrameAspect, number> = {
+  "9:16": 9 / 16,
+  "4:5": 4 / 5,
+  "1:1": 1,
+  "4:3": 4 / 3,
+  "16:9": 16 / 9,
+}
+
+export const MAX_CROP_ZOOM = 4
+const clampZoom = (z: number | undefined): number =>
+  Number.isFinite(z) ? Math.min(MAX_CROP_ZOOM, Math.max(1, z as number)) : 1
+
+const fraction = (n: number): string => Math.min(1, Math.max(0, n)).toFixed(3)
+const even = (n: number): number => Math.round(n / 2) * 2
+const evenDown = (n: number): number => Math.floor(n / 2) * 2
+const evenUp = (n: number): number => Math.ceil(n / 2) * 2
+
+export interface Frame {
   width: number
   height: number
+  /** The frame was sized from the picture itself, so nothing is scaled. */
+  native: boolean
 }
 
-/** Output sizes: 1080 on the short side, the popular vertical, square and landscape frames. */
-const SHORTS_FRAMES: Record<ShortsAspect, ShortsFrame> = {
-  "9:16": { width: 1080, height: 1920 },
-  "4:5": { width: 1080, height: 1350 },
-  "1:1": { width: 1080, height: 1080 },
-  "4:3": { width: 1440, height: 1080 },
-  "16:9": { width: 1920, height: 1080 },
+/**
+ * The output frame for an aspect. With `shortSide` (1080, 720, ...) the frame is
+ * that many pixels on its short side. Without it the frame is native: for the
+ * crop fit it is the largest box of that aspect inside the picture (divided by
+ * `zoom`), for blur and bars the smallest box that contains the picture.
+ */
+export function frameFor(
+  aspect: FrameAspect,
+  fit: FrameFit,
+  picture: { width: number; height: number },
+  shortSide?: number,
+  zoom = 1
+): Frame {
+  const ratio = FRAME_RATIOS[aspect] ?? FRAME_RATIOS[DEFAULT_FRAME_ASPECT]
+  if (shortSide) {
+    return ratio < 1
+      ? {
+          width: even(shortSide),
+          height: even(shortSide / ratio),
+          native: false,
+        }
+      : {
+          width: even(shortSide * ratio),
+          height: even(shortSide),
+          native: false,
+        }
+  }
+  const wide = picture.width / picture.height > ratio
+  if (fit === "crop") {
+    const z = clampZoom(zoom)
+    const w = wide ? picture.height * ratio : picture.width
+    const h = wide ? picture.height : picture.width / ratio
+    return { width: evenDown(w / z), height: evenDown(h / z), native: true }
+  }
+  const w = wide ? picture.width : picture.height * ratio
+  const h = wide ? picture.width / ratio : picture.height
+  return { width: evenUp(w), height: evenUp(h), native: true }
 }
-
-export const shortsFrame = (aspect?: ShortsAspect): ShortsFrame =>
-  SHORTS_FRAMES[aspect ?? DEFAULT_SHORTS_ASPECT] ?? SHORTS_FRAMES["9:16"]
-
-export const SHORTS_WIDTH = SHORTS_FRAMES["9:16"].width
-export const SHORTS_HEIGHT = SHORTS_FRAMES["9:16"].height
 
 /**
  * Width to downscale to before tone-mapping so the expensive filters run at
- * the size the frame needs rather than at source size.
+ * the size the frame needs rather than at source size. Native frames never scale.
  */
-export function shortsPrescaleWidth(
+export function framePrescaleWidth(
   probe: ProbeResult,
-  fit: ShortsFit,
+  fit: FrameFit,
+  frame: Frame,
   picture?: { width: number; height: number },
-  zoom = 1,
-  frame: ShortsFrame = shortsFrame()
+  zoom = 1
 ): number | undefined {
+  if (frame.native) return undefined
   const v = probe.video
   if (!v || !v.height) return undefined
   const width = picture?.width ?? v.displayWidth
@@ -191,9 +236,11 @@ export function shortsPrescaleWidth(
   return box < width ? box : undefined
 }
 
-export interface ShortsOptions {
-  /** Output frame; 9:16 when omitted. */
-  aspect?: ShortsAspect
+export interface FrameOptions {
+  /** Output aspect; 9:16 when omitted. */
+  aspect?: FrameAspect
+  /** Short side of the output in pixels; omit for a native frame with no scaling. */
+  shortSide?: number
   /** Picture rectangle without the black bars; applied before scaling. */
   bars?: Crop
   /** Where the crop window sits, 0..1 from the left/top; 0.5 is centred. */
@@ -202,15 +249,8 @@ export interface ShortsOptions {
   zoom?: number
 }
 
-export const MAX_SHORTS_ZOOM = 4
-const clampZoom = (z: number | undefined): number =>
-  Number.isFinite(z) ? Math.min(MAX_SHORTS_ZOOM, Math.max(1, z as number)) : 1
-
-const fraction = (n: number): string => Math.min(1, Math.max(0, n)).toFixed(3)
-const even = (n: number): number => Math.round(n / 2) * 2
-
 /** Picture centred over a blurred copy. Blur a small copy and scale it back up: same look, a fraction of the cost. */
-const blurFit = ({ width: W, height: H }: ShortsFrame): string => {
+const blurFit = ({ width: W, height: H }: Frame): string => {
   const w = even(W / 4)
   const h = even(H / 4)
   return [
@@ -222,39 +262,55 @@ const blurFit = ({ width: W, height: H }: ShortsFrame): string => {
 }
 
 /** Picture centred on black. */
-const barsFit = ({ width: W, height: H }: ShortsFrame): string =>
+const barsFit = ({ width: W, height: H }: Frame): string =>
   `scale=w=${W}:h=${H}:force_original_aspect_ratio=decrease:force_divisible_by=2:flags=lanczos,pad=w=${W}:h=${H}:x=(ow-iw)/2:y=(oh-ih)/2:color=black`
 
 /**
  * Fill the frame, then cut the window at the chosen position. Zoom scales the
  * picture past the frame so the window covers 1/zoom of it; the crop stays the
- * frame size, so the aspect ratio never changes.
+ * frame size, so the aspect ratio never changes. A native frame is already the
+ * window, so it is cut straight out of the picture.
  */
 const cropFit = (
-  { width: W, height: H }: ShortsFrame,
+  { width: W, height: H, native }: Frame,
   focus: { x: number; y: number } = { x: 0.5, y: 0.5 },
   zoom = 1
 ): string => {
+  const window = `crop=w=${W}:h=${H}:x=(iw-${W})*${fraction(focus.x)}:y=(ih-${H})*${fraction(focus.y)}`
+  if (native) return window
   const z = clampZoom(zoom)
-  return `scale=w=${even(W * z)}:h=${even(H * z)}:force_original_aspect_ratio=increase:flags=lanczos,crop=w=${W}:h=${H}:x=(iw-${W})*${fraction(focus.x)}:y=(ih-${H})*${fraction(focus.y)}`
+  return `scale=w=${even(W * z)}:h=${even(H * z)}:force_original_aspect_ratio=increase:flags=lanczos,${window}`
 }
 
-/** Shorts and Reels output: drop the bars, fit the picture, fill the frame. */
-export function shortsFilters(
+/** Framed output: drop the bars, fit the picture, fill the frame. */
+export function frameFilters(
   probe: ProbeResult,
-  fit: ShortsFit,
-  opts: ShortsOptions = {}
+  fit: FrameFit,
+  opts: FrameOptions = {}
 ): string {
-  const frame = shortsFrame(opts.aspect)
-  const sar = probe.video?.sar ?? 1
+  const v = probe.video
+  const sar = v?.sar ?? 1
   const picture = opts.bars
     ? { width: opts.bars.w * sar, height: opts.bars.h }
-    : undefined
+    : { width: v?.displayWidth ?? 1920, height: v?.height ?? 1080 }
+  const frame = frameFor(
+    opts.aspect ?? DEFAULT_FRAME_ASPECT,
+    fit,
+    picture,
+    opts.shortSide,
+    opts.zoom
+  )
   return [
     ...prepFilters(
       probe,
       "field",
-      shortsPrescaleWidth(probe, fit, picture, opts.zoom, frame),
+      framePrescaleWidth(
+        probe,
+        fit,
+        frame,
+        opts.bars ? picture : undefined,
+        opts.zoom
+      ),
       opts.bars
     ),
     "format=yuv420p",
