@@ -469,6 +469,8 @@ export function ExportButton({
               zoom={options.cropZoom}
               widthScale={options.cropWidth}
               background={options.background}
+              lockX={options.lockX}
+              lockY={options.lockY}
               bars={(bars.data ?? null) as BarsResponse | null}
               onChange={(patch) =>
                 onChange({
@@ -477,6 +479,8 @@ export function ExportButton({
                   ...(patch.widthScale !== undefined
                     ? { cropWidth: patch.widthScale }
                     : {}),
+                  ...(patch.lockX !== undefined ? { lockX: patch.lockX } : {}),
+                  ...(patch.lockY !== undefined ? { lockY: patch.lockY } : {}),
                 })
               }
             />

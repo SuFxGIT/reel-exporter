@@ -111,7 +111,7 @@ The small arrow next to **Screenshot** and **Export** opens the options for that
 | Aspect (Video) | Source (the picture's own aspect) or a 9:16, 4:5, 1:1, 4:3 or 16:9 frame |
 | Size (Video) | Source, 1080p or 720p. For the Source aspect this is a width limit (1920 or 1280). For a fixed aspect it is the short side (1080×1920, 1920×1080, 1080×1080, ...), and Source cuts the crop at native resolution with no scaling |
 | Quality (Video) | High (CRF 18), Balanced (CRF 20) or Small (CRF 24, faster) |
-| Position (fixed aspects) | Drag the window over the preview to choose what stays. Fit zooms out until the whole picture is inside the frame; Reset restores the defaults |
+| Position (fixed aspects) | Drag the window over the preview to choose what stays. The two lock toggles keep it centred left to right or top to bottom so a drag only moves the other axis. Fit zooms out until the whole picture is inside the frame; Reset restores the defaults |
 | Zoom (fixed aspects) | 0.25× to 2.5×, with the slider, the wheel or + and -. 1× just covers the frame; above it crops tighter, below it the picture shrinks and the background shows |
 | Width (fixed aspects) | 50% to 150%: squeeze or stretch the picture horizontally before it is placed, so a wide picture can fit a tall frame |
 | Background (fixed aspects) | Black, or a blurred and enlarged copy of the picture, behind whatever the picture does not cover |

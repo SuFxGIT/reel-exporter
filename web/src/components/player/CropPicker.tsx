@@ -5,8 +5,15 @@ import {
   CROP_ZOOM_RANGE,
   type FrameBackground,
 } from "@/lib/export-options"
+import { MoveHorizontal, MoveVertical } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
+import { Toggle } from "@/components/ui/toggle"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip"
 
 export interface Focus {
   x: number
@@ -78,6 +85,8 @@ export function CropPicker({
   zoom,
   widthScale,
   background,
+  lockX,
+  lockY,
   bars,
   onChange,
 }: {
@@ -90,12 +99,17 @@ export function CropPicker({
   /** Horizontal squeeze or stretch; 1 is the real width. */
   widthScale: number
   background: FrameBackground
+  /** Keep the window centred on that axis while dragging. */
+  lockX: boolean
+  lockY: boolean
   /** Bar detection for the range; null when nothing was found. */
   bars: BarsResponse | null
   onChange: (patch: {
     focus?: Focus
     zoom?: number
     widthScale?: number
+    lockX?: boolean
+    lockY?: boolean
   }) => void
 }) {
   const box = useRef<HTMLDivElement>(null)
@@ -171,11 +185,11 @@ export function CropPicker({
       onChange({
         focus: {
           x:
-            Math.abs(slackX) > 1
+            !lockX && Math.abs(slackX) > 1
               ? clamp01((x - picture.x - win.w / 2) / slackX)
               : 0.5,
           y:
-            Math.abs(slackY) > 1
+            !lockY && Math.abs(slackY) > 1
               ? clamp01((y - picture.y - win.h / 2) / slackY)
               : 0.5,
         },
@@ -183,6 +197,8 @@ export function CropPicker({
     },
     [
       onChange,
+      lockX,
+      lockY,
       s,
       ox,
       oy,
@@ -198,7 +214,25 @@ export function CropPicker({
   )
 
   const nudge = (dx: number, dy: number) =>
-    onChange({ focus: { x: clamp01(focus.x + dx), y: clamp01(focus.y + dy) } })
+    onChange({
+      focus: {
+        x: lockX ? 0.5 : clamp01(focus.x + dx),
+        y: lockY ? 0.5 : clamp01(focus.y + dy),
+      },
+    })
+  /** Turning a lock on snaps that axis back to the centre. */
+  const setLock = (axis: "x" | "y", on: boolean) =>
+    onChange({
+      ...(axis === "x" ? { lockX: on } : { lockY: on }),
+      ...(on
+        ? {
+            focus: {
+              x: axis === "x" ? 0.5 : focus.x,
+              y: axis === "y" ? 0.5 : focus.y,
+            },
+          }
+        : {}),
+    })
 
   const atDefault =
     focus.x === 0.5 && focus.y === 0.5 && zoom === 1 && widthScale === 1
@@ -312,7 +346,21 @@ export function CropPicker({
             ? "Drag to move, scroll to zoom. Black bars are left out."
             : "Drag to move, scroll to zoom"}
         </span>
-        <div className="flex shrink-0 items-center">
+        <div className="flex shrink-0 items-center gap-0.5">
+          <LockToggle
+            label="Lock horizontal: keep centred left to right"
+            pressed={lockX}
+            onChange={(on) => setLock("x", on)}
+          >
+            <MoveHorizontal />
+          </LockToggle>
+          <LockToggle
+            label="Lock vertical: keep centred top to bottom"
+            pressed={lockY}
+            onChange={(on) => setLock("y", on)}
+          >
+            <MoveVertical />
+          </LockToggle>
           <Button
             variant="ghost"
             size="xs"
@@ -336,5 +384,37 @@ export function CropPicker({
         </div>
       </div>
     </div>
+  )
+}
+
+/** A small icon toggle; amber when the axis is locked to the centre. */
+function LockToggle({
+  label,
+  pressed,
+  onChange,
+  children,
+}: {
+  label: string
+  pressed: boolean
+  onChange: (on: boolean) => void
+  children: React.ReactNode
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Toggle
+            size="sm"
+            pressed={pressed}
+            onPressedChange={onChange}
+            aria-label={label}
+            className="aria-pressed:bg-primary/15 aria-pressed:text-primary data-[state=on]:bg-primary/15 data-[state=on]:text-primary h-6 min-w-6 px-1.5"
+          />
+        }
+      >
+        {children}
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
   )
 }

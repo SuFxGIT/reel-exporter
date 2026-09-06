@@ -51,6 +51,9 @@ export interface ClipOptions {
   cropWidth: number
   /** Fixed aspects: what fills the frame around the picture. */
   background: FrameBackground
+  /** Fixed aspects: keep the window centred on that axis while dragging. */
+  lockX: boolean
+  lockY: boolean
   gifWidth: GifWidth
   gifFps: GifFps
 }
@@ -71,6 +74,8 @@ export const defaultClipOptions: ClipOptions = {
   cropZoom: 1,
   cropWidth: 1,
   background: "blur",
+  lockX: false,
+  lockY: false,
   gifWidth: 480,
   gifFps: 15,
 }
