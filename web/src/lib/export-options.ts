@@ -4,7 +4,7 @@ export type ScreenshotFormat = "png" | "jpeg" | "webp"
 export type SizePreset = "source" | "1080" | "720" | "custom"
 export type ClipQuality = "high" | "balanced" | "small"
 export type ExportFormat = "mp4" | "gif"
-export type FrameFit = "blur" | "crop" | "bars"
+export type FrameFit = "blur" | "crop" | "bars" | "stretch"
 export type FrameAspect = "9:16" | "4:5" | "1:1" | "4:3" | "16:9"
 /** The source picture's own aspect, or a fixed frame. */
 export type ExportAspect = "source" | FrameAspect

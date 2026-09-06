@@ -133,7 +133,7 @@ export function fullResFilters(
 // Framed output: the picture fitted into a fixed aspect (9:16, 1:1, 16:9, ...)
 // ---------------------------------------------------------------------------
 
-export type FrameFit = "blur" | "crop" | "bars"
+export type FrameFit = "blur" | "crop" | "bars" | "stretch"
 export type FrameAspect = "9:16" | "4:5" | "1:1" | "4:3" | "16:9"
 export const FRAME_ASPECTS: FrameAspect[] = [
   "9:16",
@@ -196,8 +196,10 @@ export function frameFor(
         }
   }
   const wide = picture.width / picture.height > ratio
-  if (fit === "crop") {
-    const z = clampZoom(zoom)
+  if (fit === "crop" || fit === "stretch") {
+    // The largest box of the aspect inside the picture: the crop window, or
+    // what a stretch squeezes the picture into (the long side gets shorter).
+    const z = fit === "crop" ? clampZoom(zoom) : 1
     const w = wide ? picture.height * ratio : picture.width
     const h = wide ? picture.height : picture.width / ratio
     return { width: evenDown(w / z), height: evenDown(h / z), native: true }
@@ -261,6 +263,10 @@ const blurFit = ({ width: W, height: H }: Frame): string => {
   ].join(";")
 }
 
+/** Picture squeezed to the frame: no crop, no bars, the shape changes. */
+const stretchFit = ({ width: W, height: H }: Frame): string =>
+  `scale=w=${W}:h=${H}:flags=lanczos,setsar=1`
+
 /** Picture centred on black. */
 const barsFit = ({ width: W, height: H }: Frame): string =>
   `scale=w=${W}:h=${H}:force_original_aspect_ratio=decrease:force_divisible_by=2:flags=lanczos,pad=w=${W}:h=${H}:x=(ow-iw)/2:y=(oh-ih)/2:color=black`
@@ -318,7 +324,9 @@ export function frameFilters(
       ? cropFit(frame, opts.focus, opts.zoom)
       : fit === "blur"
         ? blurFit(frame)
-        : barsFit(frame),
+        : fit === "stretch"
+          ? stretchFit(frame)
+          : barsFit(frame),
   ].join(",")
 }
 
