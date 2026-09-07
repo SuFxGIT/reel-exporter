@@ -69,4 +69,4 @@ There is no ffmpeg on the host; anything that touches media runs in a container.
 - Prettier: no semicolons, double quotes, 2 spaces. Tailwind v4 tokens only, no ad-hoc colours
   (the single accent is amber `--primary`).
 - Copy is plain and specific; error messages say what to do next. No em dashes in copy.
-- Keep the app to its one job. No settings pages, no auth, no metadata scraping.
+- Keep the app focused on screenshots and clips. No settings pages, no auth, no metadata scraping.

@@ -8,7 +8,7 @@
   <a href="https://buymeacoffee.com/sufx"><img src="https://cdn.buymeacoffee.com/buttons/v2/default-yellow.png" height="40" alt="Buy me a coffee"></a>
 </p>
 
-<p align="center">A small, self-hosted, Plex-style video player for one job: grabbing full-quality screenshots and trimming clips from your media library.</p>
+<p align="center">A small, self-hosted, Plex-style video player for grabbing full-quality screenshots and trimming clips from your media library.</p>
 
 Reel Exporter points at a read-only media share, shows your movies and shows in a compact sidebar, and plays anything in the browser through a lightweight preview transcode. Every capture is cut from the **original file**, never from the preview, and lands in an output folder named after the movie or show. No GPU, no database, no accounts. It runs on port **7727**.
 
