@@ -87,6 +87,11 @@ const BROWSE_MAX_FOLDERS = 2000
 const BROWSE_COUNT_LIMIT = 300
 
 const CAPTURE_EXT = new Set([".png", ".jpg", ".jpeg", ".webp", ".mp4", ".gif"])
+/** Files an export or screenshot is still writing: `3.mp4.tmp.mp4`, `3.gif.tmp.gif.palette.png`. */
+const isTempCapture = (name: string): boolean =>
+  /\.tmp\.[a-z0-9]+(\.palette\.png)?$/i.test(name)
+const isCapture = (name: string): boolean =>
+  CAPTURE_EXT.has(path.extname(name).toLowerCase()) && !isTempCapture(name)
 
 type CaptureKind = "screenshot" | "clip" | "gif"
 const captureKind = (name: string): CaptureKind => {
@@ -853,12 +858,12 @@ export function createApi(deps: ApiDeps): Router {
       const candidates: Array<{ dir: string; folder: string; name: string }> =
         []
       for (const n of await fs.readdir(capDir).catch(() => [] as string[])) {
-        if (!CAPTURE_EXT.has(path.extname(n).toLowerCase())) continue
+        if (!isCapture(n)) continue
         candidates.push({ dir: capDir, folder: capFolder, name: n })
       }
       if (capDir !== dir) {
         for (const n of await fs.readdir(dir).catch(() => [] as string[])) {
-          if (!CAPTURE_EXT.has(path.extname(n).toLowerCase())) continue
+          if (!isCapture(n)) continue
           if (tag && !n.includes(tag)) continue
           candidates.push({ dir, folder, name: n })
         }

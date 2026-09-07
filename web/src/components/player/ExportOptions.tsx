@@ -1,3 +1,4 @@
+import { useState } from "react"
 import { Camera, Loader2, Scissors, SlidersHorizontal } from "lucide-react"
 import { frameUrl, type BarsResponse, type ItemDetail } from "@/lib/api"
 import { useBars } from "@/lib/queries"
@@ -142,6 +143,7 @@ function SplitButton({
   primaryVariant,
   optionsLabel,
   dialogClassName,
+  actionLabel,
   children,
 }: {
   label: string
@@ -154,8 +156,11 @@ function SplitButton({
   optionsLabel: string
   /** Sizes the options dialog; give it a fixed size so it never jumps while editing. */
   dialogClassName: string
+  /** Text of the action button at the bottom of the dialog. */
+  actionLabel: React.ReactNode
   children: React.ReactNode
 }) {
+  const [open, setOpen] = useState(false)
   return (
     <div className="flex items-stretch">
       <Tooltip>
@@ -178,7 +183,7 @@ function SplitButton({
         </TooltipTrigger>
         <TooltipContent>{tooltip}</TooltipContent>
       </Tooltip>
-      <Dialog>
+      <Dialog open={open} onOpenChange={setOpen}>
         <DialogTrigger
           render={
             <Button
@@ -193,7 +198,7 @@ function SplitButton({
         </DialogTrigger>
         <DialogContent
           className={cn(
-            "grid-rows-[auto_minmax(0,1fr)] gap-3 overflow-hidden",
+            "grid-rows-[auto_minmax(0,1fr)_auto] gap-3 overflow-hidden",
             dialogClassName
           )}
         >
@@ -203,6 +208,17 @@ function SplitButton({
           <div className="min-h-0 min-w-0 overflow-x-hidden overflow-y-auto">
             {children}
           </div>
+          <Button
+            size="sm"
+            onClick={() => {
+              setOpen(false)
+              onPrimary()
+            }}
+            disabled={disabled}
+            className="gap-1.5"
+          >
+            {busy ? <Loader2 className="animate-spin" /> : icon} {actionLabel}
+          </Button>
         </DialogContent>
       </Dialog>
     </div>
@@ -264,6 +280,7 @@ export function ScreenshotButton({
       onPrimary={onCapture}
       primaryVariant="secondary"
       optionsLabel="Screenshot options"
+      actionLabel="Save screenshot"
       dialogClassName="w-[360px] sm:max-w-[360px]"
     >
       <div className="flex flex-col gap-3">
@@ -329,15 +346,6 @@ export function ScreenshotButton({
           {size ? ` · ${size.width}×${size.height}` : ""}
           {item.hdr.tonemap ? " · tone-mapped to SDR" : ""}
         </p>
-        <Button
-          size="sm"
-          onClick={onCapture}
-          disabled={!item.hasVideo || busy}
-          className="gap-1.5"
-        >
-          {busy ? <Loader2 className="animate-spin" /> : <Camera />} Save
-          screenshot
-        </Button>
       </div>
     </SplitButton>
   )
@@ -417,6 +425,7 @@ export function ExportButton({
       onPrimary={onExport}
       primaryVariant="default"
       optionsLabel="Export options"
+      actionLabel={buttonLabel}
       dialogClassName="h-[min(720px,calc(100vh-2rem))] w-[440px] sm:max-w-[440px]"
     >
       <div className="flex flex-col gap-3">
@@ -570,15 +579,6 @@ export function ExportButton({
           </Field>
         )}
         <p className="tnum text-muted-foreground text-xs">{summary}</p>
-        <Button
-          size="sm"
-          onClick={onExport}
-          disabled={disabled}
-          className="gap-1.5"
-        >
-          {busy ? <Loader2 className="animate-spin" /> : <Scissors />}{" "}
-          {buttonLabel}
-        </Button>
       </div>
     </SplitButton>
   )
