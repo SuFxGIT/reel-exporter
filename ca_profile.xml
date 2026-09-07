@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Profile>
+  <Profile>Reel Exporter: a small self-hosted, Plex-style video player for grabbing full-quality screenshots and trimming clips from a read-only media library. Plays anything in the browser through a lightweight preview, cuts every capture from the original file, and never writes to your media.</Profile>
+  <WebPage>https://github.com/SuFxGIT/reel-exporter</WebPage>
+  <Icon>https://raw.githubusercontent.com/SuFxGIT/reel-exporter/main/unraid/icon.png</Icon>
+  <DonateLink>https://buymeacoffee.com/sufx</DonateLink>
+  <DonateText>If Reel Exporter saves you time, you can buy me a coffee.</DonateText>
+</Profile>
