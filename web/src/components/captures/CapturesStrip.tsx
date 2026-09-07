@@ -124,6 +124,23 @@ export function CapturesStrip({ itemId, activeJob }: Props) {
         "flex shrink-0 items-stretch gap-2 overflow-x-auto px-2 py-2"
       )}
     >
+      {list.map((c, i) => (
+        <span key={c.relPath} className="contents">
+          {indicatorAt === i && <DropIndicator />}
+          <CaptureTile
+            capture={c}
+            itemId={itemId}
+            dragProps={reorder.bind(i)}
+            dragging={drag?.from === i}
+            dragStyle={
+              drag?.from === i
+                ? { transform: `translateX(${drag.dx}px)` }
+                : undefined
+            }
+          />
+        </span>
+      ))}
+      {indicatorAt === list.length && <DropIndicator />}
       {jobs.map((job) => (
         <div
           key={job.id}
@@ -152,23 +169,6 @@ export function CapturesStrip({ itemId, activeJob }: Props) {
           <Progress value={Math.round(job.progress * 100)} className="h-1.5" />
         </div>
       ))}
-      {list.map((c, i) => (
-        <span key={c.relPath} className="contents">
-          {indicatorAt === i && <DropIndicator />}
-          <CaptureTile
-            capture={c}
-            itemId={itemId}
-            dragProps={reorder.bind(i)}
-            dragging={drag?.from === i}
-            dragStyle={
-              drag?.from === i
-                ? { transform: `translateX(${drag.dx}px)` }
-                : undefined
-            }
-          />
-        </span>
-      ))}
-      {indicatorAt === list.length && <DropIndicator />}
     </div>
   )
 }
