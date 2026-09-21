@@ -3,6 +3,8 @@ import { useVirtualizer } from "@tanstack/react-virtual"
 import {
   ChevronDown,
   ChevronRight,
+  ChevronsDownUp,
+  ChevronsUpDown,
   Clapperboard,
   Film,
   FolderCog,
@@ -16,6 +18,7 @@ import {
 import { toast } from "sonner"
 import { api, type ItemDetail } from "@/lib/api"
 import { useLibrary, useShows, useSources } from "@/lib/queries"
+import { matchesQuery, normalizeForSearch } from "@/lib/text"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import {
@@ -133,6 +136,33 @@ export function Sidebar({ selectedId, selectedItem, onSelect }: SidebarProps) {
     })
   }, [])
 
+  // Shows the expand and collapse buttons act on: every show, or only those
+  // matching the search while one is active.
+  const showIds = useMemo(() => {
+    const q = normalizeForSearch(query)
+    return (
+      library.data?.libraries.flatMap((lib) =>
+        lib.items
+          .filter((i) => i.type === "show" && (!q || matchesQuery(i.title, q)))
+          .map((i) => i.id)
+      ) ?? []
+    )
+  }, [library.data, query])
+  const canExpandAll =
+    collapsedLibraries.size > 0 ||
+    collapsedSeasons.size > 0 ||
+    showIds.some((id) => !expandedShows.has(id))
+  const canCollapseAll = expandedShows.size > 0
+  const expandAll = useCallback(() => {
+    setCollapsedLibraries(new Set())
+    setCollapsedSeasons(new Set())
+    setExpandedShows((s) => new Set([...s, ...showIds]))
+  }, [showIds])
+  const collapseAll = useCallback(() => {
+    setExpandedShows(new Set())
+    setCollapsedSeasons(new Set())
+  }, [])
+
   const rescan = async () => {
     try {
       await api.rescan()
@@ -202,6 +232,38 @@ export function Sidebar({ selectedId, selectedItem, onSelect }: SidebarProps) {
             </button>
           )}
         </div>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={expandAll}
+                disabled={!canExpandAll}
+                aria-label="Expand all"
+              />
+            }
+          >
+            <ChevronsUpDown className="size-3.5" />
+          </TooltipTrigger>
+          <TooltipContent>Expand all</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={collapseAll}
+                disabled={!canCollapseAll}
+                aria-label="Collapse all"
+              />
+            }
+          >
+            <ChevronsDownUp className="size-3.5" />
+          </TooltipTrigger>
+          <TooltipContent>Collapse all</TooltipContent>
+        </Tooltip>
         <Tooltip>
           <TooltipTrigger
             render={
